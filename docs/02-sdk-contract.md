@@ -50,6 +50,8 @@ client.get_session(session_id)   → Session
 
 **key 在构造 client 时给，不在 `submit` 时给。** client 是有状态的：它绑定一个 Agent，`submit` 不必每次都重复交一次身份。
 
+**`submit` 与 `create_session` 同步拿到 id**，但执行本身是异步的。平台在这一步就把 Run / 会话行落下来（由 `runtime` 写 —— 它是执行域的唯一写者），再把句柄交回；否则调用方手上的 id 无法立刻用于 `get_run` 与 `stream`。
+
 **`submit` 永远只返回句柄。** 「怎么等」由句柄上的方法决定 —— 调用方不必在发送的那一刻就决定是阻塞、是流式、还是稍后再取。
 
 这样安排带来三件事：
@@ -96,7 +98,9 @@ result = client.get_run(run.id).wait()
 
 ### 5.1 幂等
 
-调用方生成 `request_id`。同一个 `(应用, request_id)` 重复提交，返回**同一个运行**，不会产生第二次执行。
+调用方生成 `request_id`。同一个 `(Agent, request_id)` 重复提交，返回**同一个运行**，不会产生第二次执行。
+
+**去重只发生在提交路径上**（`gateway`）。队列的重投不是一次新提交 —— 它恢复的是同一个 Run，走的是另一条路。
 
 ### 5.2 会话
 
@@ -106,9 +110,11 @@ result = client.get_run(run.id).wait()
 
 **`wait` 超时只是调用方不等了，运行继续。** 要停下来必须显式 `cancel()`。已产生的成本照记。
 
+`run.status` 是这五个之一：`pending` / `running` / `succeeded` / `failed` / `cancelled`。**`wait` 超时不改变状态** —— 它仍是 `running`。
+
 ### 5.4 断线续传
 
-事件带**单调递增的序号**，`stream(from_seq=n)` 从断点接着推。
+事件带**单调递增的序号**，`stream(from_seq=n)` 从断点接着推。序号**在每个 Run 内独立编号**，从 1 开始 —— 它是 Run 的局部坐标，不是全局标识。
 
 保证**不丢失**，可能重复 —— 调用方按序号去重。
 
@@ -132,8 +138,8 @@ result = client.get_run(run.id).wait()
 
 | 异常 | 触发 |
 |---|---|
-| `AuthError` | 凭据无效，或应用已停用 |
-| `QuotaError` | 超出配额或触发限流 |
+| `AuthError` | key 无效，或已被重置 |
+| `QuotaError` | 超出配额或触发限流。**v1 不产生** —— 配额只建不用（见 [08-permissions.md](./08-permissions.md) 2.2） |
 | `ContractError` | 参数或协议不合法 |
 | `RunFailed` | 运行以失败结束（`wait` 时抛出） |
 | `Timeout` | `wait` 超时；**运行仍在继续** |
@@ -144,7 +150,7 @@ result = client.get_run(run.id).wait()
 
 ### 6.1 后端：永久 key
 
-创建 Agent 时生成，只对那一个 Agent 有效，永久不过期。明文**只在生成时出现一次**，之后平台只存哈希。
+创建 Agent 时生成，只对那一个 Agent 有效，永久不过期。明文**只在生成时出现一次**，之后平台只存哈希。**平台不转交明文** —— 把它交给调用方是一次运维动作，由当时操作的人完成（创建时是编辑，重置时是管理员）。
 
 **重置**由管理员操作，旧的立即失效。
 
@@ -159,6 +165,8 @@ result = client.get_run(run.id).wait()
 ```
 
 换 key 时带上终端用户标识，**绑在临时 key 上**，之后前端不用再传。
+
+**临时 key 落在 Redis** —— 1 小时的 TTL 就是它的生命周期；与永久 key 一样只存哈希。**永久 key 被重置时，由它派生的临时 key 一并失效**：重置的用意就是立刻断掉。
 
 > 换 key 是平台的 HTTP 接口，由调用方后端调用 —— 它不属于前端 SDK。前端只需要知道去哪里拿这把 key。
 
