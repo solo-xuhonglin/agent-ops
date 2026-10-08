@@ -8,11 +8,12 @@
   - [03-domain-model.md](./03-domain-model.md) —— 领域划分与实现约定
   - [04-orchestration.md](./04-orchestration.md) —— 编排
   - [05-execution-and-streaming.md](./05-execution-and-streaming.md) —— 运行、事件与推流
-  - [06-release.md](./06-release.md) —— 配置、版本与发布
-  - [07-tools-and-skills.md](./07-tools-and-skills.md) —— 工具与 Skill
-  - [08-credentials.md](./08-credentials.md) —— 凭据
-  - [09-permissions.md](./09-permissions.md) —— 权限
-  - [10-roadmap.md](./10-roadmap.md) —— 路线图与待定项
+  - [06-internal-protocol.md](./06-internal-protocol.md) —— 内部协议
+  - [07-release.md](./07-release.md) —— 配置、版本与发布
+  - [08-tools-and-skills.md](./08-tools-and-skills.md) —— 工具与 Skill
+  - [09-credentials.md](./09-credentials.md) —— 凭据
+  - [10-permissions.md](./10-permissions.md) —— 权限
+  - [11-roadmap.md](./11-roadmap.md) —— 路线图与待定项
 
 ---
 
@@ -46,13 +47,13 @@ Agent 的编排方式有两种，按流程的确定性选择：**流程确定时
 
 **DAG 可视化拖拽画布**；**单点登录**；MCP 协议支持；分布式沙箱（多节点执行）；评测与数据集；插件市场；灰度发布；配置的 Git 管理。
 
-> 画布缺席不影响 DAG 落地 —— v1 用表单与 JSON 编辑图结构（见 [10-roadmap.md](./10-roadmap.md) 待定项 1）。登录的见 [10-roadmap.md](./10-roadmap.md) 待定项 2。
+> 画布缺席不影响 DAG 落地 —— v1 用表单与 JSON 编辑图结构（见 [11-roadmap.md](./11-roadmap.md) 待定项 1）。登录的见 [11-roadmap.md](./11-roadmap.md) 待定项 2。
 
 ---
 
 ## 2. 总体架构
 
-三个服务。划分依据不是"技术分层"，而是**变更驱动**：对外契约跟着调用方需求变，配置模型跟着业务变，执行引擎跟着模型与运行时变。三者互不牵连。
+三个服务。划分依据不是"技术分层"，而是**变更驱动**：对外契约与连接跟着调用方需求和传输机制变，配置模型跟着业务变，执行引擎跟着模型与运行时变。
 
 ```mermaid
 flowchart TB
@@ -60,61 +61,57 @@ flowchart TB
     FE["业务前端"]
     UI["配置 UI"]
 
-    subgraph GW["gateway"]
-        AUTH["鉴权 / 配额"]
-        RESOLVE["Agent → 版本解析"]
-        FWD["流式转发"]
+    subgraph MGR["manager (Java)"]
+        AUTH["鉴权"]
+        CONN["连接管理"]
+        DISP["派发与池"]
+        FWD["事件转发"]
     end
-    subgraph CFG["config"]
+    subgraph CFG["config (Python)"]
         API["管理 API"]
         VAL["校验器"]
         PUB["发布服务"]
         RBAC["权限"]
     end
-    subgraph RT["runtime"]
-        JC["任务消费"]
+    subgraph WK["worker (Python)"]
         GB["图编译"]
         TE["工具执行"]
         SM["沙箱管理"]
-        EM["Trace 写入"]
     end
 
     PG[("Postgres")]
-    RDS[("Redis")]
     DOCK["沙箱容器"]
 
-    BE --> GW
-    FE --> GW
+    BE -->|HTTP + SSE| MGR
+    FE -->|HTTP + SSE| MGR
     UI --> CFG
-    GW --> CFG
-    GW -->|只读| PG
-    GW --> RT
+    MGR -->|读写会话与运行| PG
     CFG -->|读写| PG
-    RT -->|读写| PG
-    GW --> RDS
-    RDS --> JC
-    JC --> GB --> TE
+    WK -->|只写运行日志| PG
+    MGR <-->|长连接| WK
     TE --> SM --> DOCK
-    EM --> PG
-    RT --> RDS
 ```
+
+`manager` 之间也互连长连接，用于事件路由 —— 图里省略（见 [06-internal-protocol.md](./06-internal-protocol.md) 第 3 节）。
 
 ### 2.1 三个服务
 
-| 服务 | 职责 | 写领域表 |
-|---|---|---|
-| `gateway` | 对外协议、鉴权、配额、会话、流式转发 | ❌ 只读 |
-| `config` | 定义、发布、版本、权限、查询、导入导出 | ✅ **配置与发布的唯一写者** |
-| `runtime` | 图编译、LLM 调用、工具执行、沙箱、运行日志 | ✅ **执行记录的唯一写者** |
+| 服务 | 语言 | 职责 | 写领域表 |
+|---|---|---|---|
+| `manager` | Java / Netty | 对外协议、鉴权、客户端与 `worker` 的连接、派发、事件转发 | ✅ 会话与运行 |
+| `config` | Python | 定义、发布、版本、权限、查询、导入导出、凭据 | ✅ 配置与发布 |
+| `worker` | Python | 图编译、LLM 调用、工具执行、沙箱、运行日志 | ✅ 运行日志 |
 
 **每张表只有一个写者。** 这保证了并发与不变式有唯一入口 —— **唯一的例外是 `audit`**，它按设计就是多写者，只追加不修改。
 
+执行域横跨两个服务，但**按表分得干净**：会话与提交信息是结构性字段，由 `manager` 写；运行日志是执行模型本身，由 `worker` 写（见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 第 1 节）。
+
 ### 2.2 关键约束
 
-- **只有 `runtime` 调用 LLM。** `gateway` 与 `config` 不发起任何模型调用。
-- **Postgres 是配置的唯一真相源。** 配置通过 UI/API 管理，不使用 Git 管理。
-- **`runtime` 无状态。** 会话状态外置到数据库，Worker 崩溃后任务可重投。
-- **权限校验在两处发生**：配置面判角色 + 调用面判 key。出队前还会重新校验一次 key —— **重置之后，已入队的任务不再执行**。
+- **只有 `worker` 调用 LLM。** `manager` 与 `config` 不发起任何模型调用。
+- **Postgres 是唯一的存储。** 没有消息中间件、没有缓存 —— 派发与实时分发由 `manager` 的长连接承担，临时 key 是签名令牌。
+- **`worker` 无状态。** 会话状态外置到数据库，它崩溃后任务可重投。
+- **权限校验在两处发生**：配置面判角色 + 调用面判 key。**派发前会重新校验一次 key** —— 重置之后，还没开始的任务不再执行。
 - **服务之间只通过接口通信**，不共享写路径。
 
 ### 2.3 部署形态
@@ -123,17 +120,16 @@ v1 单机 `docker-compose`：
 
 | 服务 | 说明 |
 |---|---|
-| `gateway` | 对外接入，无状态，可多副本 |
+| `manager` | 对外接入 + 长连接中枢，无状态（连接表是软状态），可多副本 |
 | `config` | 配置与发布，无状态，可多副本 |
-| `runtime` | 图编译与执行，可多副本，需挂载容器运行时 |
+| `worker` | 图编译与执行，可多副本，需挂载容器运行时 |
 | `postgres` | 唯一数据存储 |
-| `redis` | 任务队列 + 流式事件分发 |
 | `web` | 配置 UI 静态资源 |
-| `nginx` | 反向代理（对外只暴露 `gateway` 与 `web`） |
+| `nginx` | 反向代理（对外只暴露 `manager` 与 `web`） |
 
-沙箱不单独部署服务，由 `runtime` 内嵌的沙箱管理器直接管理。
+沙箱不单独部署服务，由 `worker` 内嵌的沙箱管理器直接管理。
 
-**一套 `docker-compose` 就是一个环境。** 开发、预生产、生产各部署一套，各有一套数据库、调用 key 与凭据；配置靠导入导出在环境之间搬（见 [06-release.md](./06-release.md) 第 3 节）。**平台内部没有环境这一层。**
+**一套 `docker-compose` 就是一个环境。** 开发、预生产、生产各部署一套，各有一套数据库、调用 key 与凭据；配置靠导入导出在环境之间搬（见 [07-release.md](./07-release.md) 第 3 节）。**平台内部没有环境这一层。**
 
 ---
 
@@ -148,6 +144,8 @@ v1 单机 `docker-compose`：
 **事件里会出现租户自己的引用** —— 工具名、分支标签、子 Agent 名，它们描述这次运行做了什么。边界是**引用外发，内容不外发**：System Prompt 与 Skill 正文属于配置，不出现。
 
 **key 决定调谁**：后端拿 Agent 的永久 key，前端拿换来的临时 key，都在构造 client 时给。后端是 Python 包，前端是 TypeScript 纯脚本库（不提供 UI、不绑定框架），两者方法一一对应。
+
+**控制走 HTTP，事件走 SSE 长连接。** 两者分开：控制有幂等键、有明确答复；事件是只读的、可断线重连。于是那条长连接断了、重连了、换了副本，都不需要和任何状态对账。
 
 调用模型是 **submit 返回句柄**：「怎么等」由句柄上的方法决定，于是对话式与任务式不是两套 API，而是同一套的两个用法 —— **调用方式由调用方选，不由编排方式决定**，否则 ReAct 迁到 DAG 会变成对外破坏性变更。
 
@@ -177,7 +175,7 @@ audit ← 被所有领域写入（不反向依赖任何领域）
 
 **两种模式编译成同一张图，执行引擎只有一套。** 运行日志模型、状态机、重投机制、沙箱调用因此全部共用，差别被压缩到编译这一层 —— 这让"流程稳定后从 ReAct 迁到 DAG"成为一条演进路径，而不是一次重写。
 
-`runtime` 的入口是**编译**，不是解释：取已发布版本的快照 → 编译成执行图 → 运行 → 每步落日志。`gateway` 只传"哪个 Agent 的哪个版本 + 输入 + 会话 + 调用方"，**它不知道也不传编排结构** —— 这是两个服务能各自演进的原因。
+`worker` 的入口是**编译**，不是解释：取已发布版本的快照 → 编译成执行图 → 运行 → 每步落日志。`manager` 只传"哪个 Agent 的哪个版本 + 输入 + 会话 + 调用方"，**它不知道也不传编排结构** —— 这是两个服务能各自演进的原因。
 
 **运行日志是唯一真相源。** 一行一个事实，只追加 —— Run 的状态、对外的事件流、断线重连、崩溃续跑都是它的不同读法。**事件是它的视图**：类型一一对应，内容有取舍 —— 租户自己的引用与这次运行的数据外发，配置的内容不外发。
 
@@ -190,7 +188,7 @@ audit ← 被所有领域写入（不反向依赖任何领域）
 
 **快照只含配置** —— 编排、挂载，以及挂载到的 Tool / Skill 的版本号。不含调用 key、责任人、归档标志。
 
-> 详见 [06-release.md](./06-release.md)。
+> 详见 [07-release.md](./07-release.md)。
 
 ### 3.5 工具与 Skill
 
@@ -198,7 +196,7 @@ audit ← 被所有领域写入（不反向依赖任何领域）
 
 **凭据不写在工具里。** 工具只声明需要一份凭据，用哪一份由 Agent 决定 —— **Agent 是外部系统里的一个员工**，在那边有自己的账号。这样 SDK 契约才守得住：调用方既不需要知道凭据的存在，也不需要提供它。
 
-> 详见 [07-tools-and-skills.md](./07-tools-and-skills.md) 与 [08-credentials.md](./08-credentials.md)。
+> 详见 [08-tools-and-skills.md](./08-tools-and-skills.md) 与 [09-credentials.md](./09-credentials.md)。
 
 ### 3.6 权限
 
@@ -210,7 +208,7 @@ audit ← 被所有领域写入（不反向依赖任何领域）
 
 **v1 只有资源级权限，没有工具级权限** —— 升级触发条件是第一个外部调用方调用会写外部系统的 Agent。
 
-> 详见 [09-permissions.md](./09-permissions.md)。
+> 详见 [10-permissions.md](./10-permissions.md)。
 
 ---
 
@@ -219,11 +217,11 @@ audit ← 被所有领域写入（不反向依赖任何领域）
 ```
 agent-ops/
 ├── docs/              # 设计文档
-├── contract/          # 对外协议定义（唯一真相源，gateway 与 SDK 共用）
-├── shared/            # 共享 spec 模型（领域模型的唯一定义）
-├── config/            # 配置服务
-├── gateway/           # 接入服务
-├── runtime/           # 执行服务
+├── contract/          # 对外协议定义（语言中立，唯一真相源）
+├── shared/            # 共享 spec 模型（领域模型的唯一定义，Python）
+├── config/            # 配置服务（Python）
+├── manager/           # 接入与连接中枢（Java）
+├── worker/            # 执行服务（Python）
 ├── sandbox/           # 沙箱基础镜像与执行器
 ├── sdk/
 │   ├── python/        # 后端 SDK
@@ -234,8 +232,8 @@ agent-ops/
 
 `contract/` 与 `shared/` 是 DRY 的两个支点：
 
-- `contract/` 保证**对外协议只有一份定义** —— 接入服务的路由与两个 SDK 的方法签名都由它来。
-- `shared/` 保证**快照序列化只有一份实现** —— 配置侧的校验、执行侧的编译、导入导出、版本回滚全部依赖它。
+- `contract/` 保证**对外协议只有一份定义** —— `manager` 的路由与两个 SDK 的方法签名都由它来。它必须是**语言中立的定义**，不是共用的一份代码：三个消费方分别是 Java、Python、TypeScript，各自从它生成。
+- `shared/` 保证**快照序列化只有一份实现** —— 配置侧的校验、执行侧的编译、导入导出、版本回滚全部依赖它。**它只被 Python 那几个服务用** —— 这正是运行日志的写者放在 `worker` 而不是 `manager` 的原因（见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 第 1 节）。
 
 ---
 
@@ -250,11 +248,12 @@ agent-ops/
 | 5 | 领域边界用前缀而非数据库 schema | 迁移、备份简单；跨领域查询无 schema 前缀负担 | 边界在数据库层不可见 |
 | 6 | **凭据用 Agent 专用账号，由租户登记** | SDK 契约干净、多租户天然隔离、前端可用、重投可用 | 多一个领域；外部系统那边要为每个 Agent 开账号，且分不清"谁在操作" |
 | 7 | **同时支持 ReAct 与 DAG** | 灵活与可控并存；**给演进留了明确路径** | 两套校验不变式；编译层要做两遍映射 |
-| 8 | **拆成三个服务** | 对外契约、配置模型、执行引擎各自演进，互不牵连 | 三次部署与发版；多一跳；跨服务排障更麻烦 |
+| 8 | **拆成三个服务** | 对外契约、配置模型、执行引擎各自演进，互不牵连 | 三次部署与发版；多一跳；跨服务排障更麻烦；**两套工具链**（`manager` 是 Java，其余是 Python） |
 | 9 | **领域按变更驱动细分（八个领域）** | 边界与所有者对齐，每个域装什么没有歧义 | 跨领域引用增多；领域变小变多，单看每一个收益不明显 |
 | 10 | **SDK 屏蔽全部内部概念** | 内部怎么改都不破坏兼容性 | 调用方无法针对特定编排做优化；排障要靠平台侧提供信息 |
 | 11 | 配置由 UI 与数据库管理（而非 Git） | 编辑路径直接、无 merge 冲突 | 失去 PR review 与 Git 历史；审计日志成为唯一追溯手段 |
 | 12 | Python 工具预构建镜像，容器用完即弃 | 安全、快、无状态污染 | 加工具要走一次镜像构建；每次调用有冷启动开销 |
 | 13 | **key 即授权（没有独立授权表）** | 少一层实体、少一张表；判定一步完成 | 一个 Agent 一把 key，所有后端调用方共用，出了事分不清是谁；**平台不判运行与会话的归属 —— 读的隔离由调用方承担** |
+| 14 | **不要消息中间件，也不要缓存** | 部署只依赖 Postgres；没有第三个组件要运维 | 派发与实时分发由 `manager` 的长连接承担 —— **它因此要自己维护路由、转发与归属，成了三个服务里偏大的那个**（见 [06-internal-protocol.md](./06-internal-protocol.md)） |
 
-> 实施顺序与尚未决定的问题见 [10-roadmap.md](./10-roadmap.md)。
+> 实施顺序与尚未决定的问题见 [11-roadmap.md](./11-roadmap.md)。

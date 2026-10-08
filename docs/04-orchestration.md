@@ -94,8 +94,8 @@ Agent 的编排方式决定它内部怎么走：
 
 ## 5. 运行
 
-`runtime` 的入口是**编译**，不是解释：取已发布版本的快照 → 编译成执行图 → 运行 → 每步落日志。
+`worker` 的入口是**编译**，不是解释：取已发布版本的快照 → 编译成执行图 → 运行 → 每步落日志。
 
-`gateway` 传来的只有"哪个 Agent 的哪个版本 + 输入 + 会话 + 调用方" —— **它不知道也不传编排结构**，编译由 `runtime` 独立完成。这是两个服务能各自演进的原因。
+`manager` 传来的只有"哪个 Agent 的哪个版本 + 输入 + 会话 + 调用方" —— **它不知道也不传编排结构**，编译由 `worker` 独立完成。这是两个服务能各自演进的原因。
 
-> 运行怎么记录、怎么推给调用方、断线怎么续、崩溃怎么重投、取消怎么做，见 [05-execution-and-streaming.md](./05-execution-and-streaming.md)。
+> 运行怎么记录、怎么推给调用方、断线怎么续、崩溃怎么重投、取消怎么做，见 [05-execution-and-streaming.md](./05-execution-and-streaming.md)；派发与长连接见 [06-internal-protocol.md](./06-internal-protocol.md)。

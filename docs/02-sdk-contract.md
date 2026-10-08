@@ -50,7 +50,7 @@ client.get_session(session_id)   → Session
 
 **key 在构造 client 时给，不在 `submit` 时给。** client 是有状态的：它绑定一个 Agent，`submit` 不必每次都重复交一次身份。
 
-**`submit` 与 `create_session` 同步拿到 id**，但执行本身是异步的。平台在这一步就把 Run / 会话行落下来（由 `runtime` 写 —— 它是执行域的唯一写者），再把句柄交回；否则调用方手上的 id 无法立刻用于 `get_run` 与 `stream`。
+**`submit` 与 `create_session` 同步拿到 id**，但执行本身是异步的。平台在这一步就把 Run / 会话行落下来（由 `manager` 写 —— 它是这两张表的写者，见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 第 1 节），再把句柄交回；否则调用方手上的 id 无法立刻用于 `get_run` 与 `stream`。
 
 **`submit` 永远只返回句柄。** 「怎么等」由句柄上的方法决定 —— 调用方不必在发送的那一刻就决定是阻塞、是流式、还是稍后再取。
 
@@ -104,7 +104,7 @@ result = client.get_run(run.id).wait()
 
 **去重永不过期** —— 没有失效窗口。
 
-**去重靠唯一索引** —— `(Agent, request_id)` 的唯一约束落在 Run 表上，由创建 Run 的服务在一次写入里判定。`gateway` 不写库，做不了原子去重，只负责透传 `request_id`。
+**去重靠唯一索引** —— `(Agent, request_id)` 的唯一约束落在 `execution_runs` 上，由写这张表的 `manager` 在一次写入里判定，因此是原子的。
 
 **队列的重投不是一次新提交** —— 它恢复的是同一个 Run，走的是另一条路（见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 第 5 节）。
 
@@ -126,11 +126,13 @@ result = client.get_run(run.id).wait()
 
 ### 5.4 断线续传
 
-事件带**单调递增的序号** —— 它就是 SSE 的 event id，`stream(from_seq=n)` 从断点接着推。序号**在每个 Run 内独立编号**，从 1 开始 —— 它是 Run 的局部坐标，不是全局标识。
+事件带**单调递增的序号**，`stream(from_seq=n)` 从断点接着推。序号**在每个 Run 内独立编号**，从 1 开始 —— 它是 Run 的局部坐标，不是全局标识。
+
+**传输是 SSE**，用 `fetch` 流式读，不用原生 `EventSource` —— 后者设不了自定义请求头。见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 4.1。
 
 **内容不丢失，增量粒度不保证。** 断线期间的文本增量不会重放，重连后可能等这一步结束、一次性拿到整段文本。顺序单调递增，但**可能重复** —— 调用方按序号去重。
 
-> 这条对服务端是硬要求：**动作事实必须落成可重放的日志**，不能只走易失的发布订阅通道。见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 第 4 节。
+> 这条对服务端是硬要求：**动作事实必须落成可重放的日志**，不能只走连接。见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 第 4 节。
 
 ### 5.5 事件
 
@@ -163,7 +165,7 @@ result = client.get_run(run.id).wait()
 | 异常 | 触发 |
 |---|---|
 | `AuthError` | key 无效，或已被重置 |
-| `QuotaError` | 超出配额或触发限流。**v1 不产生** —— 配额只建不用（见 [09-permissions.md](./09-permissions.md) 2.2） |
+| `QuotaError` | 超出配额或触发限流。**v1 不产生** —— 配额只建不用（见 [10-permissions.md](./10-permissions.md) 2.2） |
 | `ContractError` | 参数或协议不合法 |
 | `ConflictError` | 会话里已有活跃的运行，这次提交被拒绝（见 5.2） |
 | `RunFailed` | 运行以失败结束（`wait` 时抛出） |
@@ -191,7 +193,9 @@ result = client.get_run(run.id).wait()
 
 换 key 时带上终端用户标识，**绑在临时 key 上**，之后前端不用再传。
 
-**临时 key 落在 Redis** —— 1 小时的 TTL 就是它的生命周期；与永久 key 一样只存哈希。**永久 key 被重置时，由它派生的临时 key 一并失效**：重置的用意就是立刻断掉。
+**临时 key 是一张签名令牌** —— 内容是「哪个 Agent + 哪个终端用户 + 过期时间 + key 版本号」，平台用一把密钥签名。**它不落任何存储**：验证是算一次签名，不是查一次表。
+
+**重置永久 key 就是把版本号 +1** —— 由它派生的临时 key 带着旧版本号，一并失效。重置的用意就是立刻断掉。
 
 > 换 key 是平台的 HTTP 接口，由调用方后端调用 —— 它不属于前端 SDK。前端只需要知道去哪里拿这把 key。
 
