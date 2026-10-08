@@ -3,7 +3,7 @@
 - 状态：草稿（待评审）
 - 日期：2026-10-08
 - 范围：对外调用契约 —— SDK 表面、语义与保证
-- 关联：[agent-platform-design.md](./agent-platform-design.md) 3.1
+- 关联：[01-agent-platform-design.md](./01-agent-platform-design.md) 3.1
 - 具体报文格式由 `contract/` 下的 OpenAPI 定义；**本文档定义 SDK 表面的语义与保证**
 
 ---

@@ -5,14 +5,14 @@
 - 范围：v1 概要设计 —— 定位、架构、设计要点、工程结构、权衡。**细节全在专题文档里，本文档只给结论与指向。**
 - 详细设计存档：commit `58e184d`（`git show 58e184d:docs/data-model.md`）
 - 关联：
-  - [domain-model.md](./domain-model.md) —— 领域划分与实现约定
-  - [sdk-contract.md](./sdk-contract.md) —— 对外调用契约
-  - [orchestration.md](./orchestration.md) —— 编排与执行
-  - [release.md](./release.md) —— 配置、版本与发布
-  - [tools-and-skills.md](./tools-and-skills.md) —— 工具与 Skill
-  - [credentials.md](./credentials.md) —— 凭据
-  - [permissions.md](./permissions.md) —— 权限
-  - [roadmap.md](./roadmap.md) —— 路线图与待定项
+  - [02-sdk-contract.md](./02-sdk-contract.md) —— 对外调用契约
+  - [03-domain-model.md](./03-domain-model.md) —— 领域划分与实现约定
+  - [04-orchestration.md](./04-orchestration.md) —— 编排与执行
+  - [05-release.md](./05-release.md) —— 配置、版本与发布
+  - [06-tools-and-skills.md](./06-tools-and-skills.md) —— 工具与 Skill
+  - [07-credentials.md](./07-credentials.md) —— 凭据
+  - [08-permissions.md](./08-permissions.md) —— 权限
+  - [09-roadmap.md](./09-roadmap.md) —— 路线图与待定项
 
 ---
 
@@ -46,7 +46,7 @@ Agent 的编排方式有两种，按流程的确定性选择：**流程确定时
 
 **DAG 可视化拖拽画布**；**单点登录**；MCP 协议支持；分布式沙箱（多节点执行）；评测与数据集；插件市场；灰度发布；配置的 Git 管理。
 
-> 画布缺席不影响 DAG 落地 —— v1 用表单与 JSON 编辑图结构（见 [roadmap.md](./roadmap.md) 待定项 1）。登录的见 [roadmap.md](./roadmap.md) 待定项 2。
+> 画布缺席不影响 DAG 落地 —— v1 用表单与 JSON 编辑图结构（见 [09-roadmap.md](./09-roadmap.md) 待定项 1）。登录的见 [09-roadmap.md](./09-roadmap.md) 待定项 2。
 
 ---
 
@@ -147,7 +147,7 @@ v1 单机 `docker-compose`：
 
 调用模型是 **submit 返回句柄**：「怎么等」由句柄上的方法决定，于是对话式与任务式不是两套 API，而是同一套的两个用法 —— **调用方式由调用方选，不由编排方式决定**，否则 ReAct 迁到 DAG 会变成对外破坏性变更。
 
-> 详见 [sdk-contract.md](./sdk-contract.md)。
+> 详见 [02-sdk-contract.md](./02-sdk-contract.md)。
 
 ### 3.2 领域模型
 
@@ -165,7 +165,7 @@ audit ← 被所有领域写入（不反向依赖任何领域）
 
 **运行只认已发布的版本**：会话与 Run 都绑定版本快照，定义可以改，历史执行仍能精确复现。执行域因此只依赖 `release`，不碰 `agent` / 工具 / Skill / 凭据。
 
-> 详见 [domain-model.md](./domain-model.md)：八个领域各装什么、边界的关键判断、依赖方向规则、实现约定、未来领域的接入点。
+> 详见 [03-domain-model.md](./03-domain-model.md)：八个领域各装什么、边界的关键判断、依赖方向规则、实现约定、未来领域的接入点。
 
 ### 3.3 编排与执行
 
@@ -175,7 +175,7 @@ audit ← 被所有领域写入（不反向依赖任何领域）
 
 `runtime` 的入口是**编译**，不是解释：取已发布版本的快照 → 编译成执行图 → 运行 → 每步落 trace。`gateway` 只传"哪个 Agent 的哪个版本 + 输入 + 会话 + 调用方"，**它不知道也不传编排结构** —— 这是两个服务能各自演进的原因。
 
-> 详见 [orchestration.md](./orchestration.md)：怎么选、ReAct 的价值与代价、DAG 的节点与校验不变式、子 Agent 与嵌套、运行与观测。
+> 详见 [04-orchestration.md](./04-orchestration.md)：怎么选、ReAct 的价值与代价、DAG 的节点与校验不变式、子 Agent 与嵌套、运行与观测。
 
 ### 3.4 配置与发布
 
@@ -183,7 +183,7 @@ audit ← 被所有领域写入（不反向依赖任何领域）
 
 "运行只认已发布版本"不为调试让路，而是用**发布通道**分开：`stable` 推进线上版本，`debug`（Playground 试跑）正常记录、可回放，但不影响线上。
 
-> 详见 [release.md](./release.md)。
+> 详见 [05-release.md](./05-release.md)。
 
 ### 3.5 工具与 Skill
 
@@ -191,7 +191,7 @@ audit ← 被所有领域写入（不反向依赖任何领域）
 
 **凭据不写在工具里。** 工具只声明需要一份凭据，用哪一份由 Agent 决定 —— **Agent 是外部系统里的一个员工**，在那边有自己的账号。这样 SDK 契约才守得住：调用方既不需要知道凭据的存在，也不需要提供它。
 
-> 详见 [tools-and-skills.md](./tools-and-skills.md) 与 [credentials.md](./credentials.md)。
+> 详见 [06-tools-and-skills.md](./06-tools-and-skills.md) 与 [07-credentials.md](./07-credentials.md)。
 
 ### 3.6 权限
 
@@ -203,7 +203,7 @@ audit ← 被所有领域写入（不反向依赖任何领域）
 
 **v1 只有资源级权限，没有工具级权限** —— 升级触发条件是第一个外部应用调用会写外部系统的 Agent。
 
-> 详见 [permissions.md](./permissions.md)。
+> 详见 [08-permissions.md](./08-permissions.md)。
 
 ---
 
@@ -250,4 +250,4 @@ agent-ops/
 | 12 | Python 工具预构建镜像，容器用完即弃 | 安全、快、无状态污染 | 加工具要走一次镜像构建；每次调用有冷启动开销 |
 | 13 | **key 即授权（没有独立授权表）** | 少一层实体、少一张表；判定一步完成 | 一个 Agent 一把 key，所有后端调用方共用，出了事分不清是谁 |
 
-> 实施顺序与尚未决定的问题见 [roadmap.md](./roadmap.md)。
+> 实施顺序与尚未决定的问题见 [09-roadmap.md](./09-roadmap.md)。

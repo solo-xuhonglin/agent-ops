@@ -3,7 +3,7 @@
 - 状态：草稿（待评审）
 - 日期：2026-10-08
 - 范围：Agent 的两种编排方式，以及它们如何编译与运行
-- 关联：[agent-platform-design.md](./agent-platform-design.md) 3.3
+- 关联：[01-agent-platform-design.md](./01-agent-platform-design.md) 3.3
 
 ---
 
@@ -42,7 +42,7 @@ Agent 的编排方式决定它内部怎么走：
 
 **一旦某段流程被证明是稳定的，就该从 `react` 改成 `dag`，或者把它固化成工具。** 灵活性留给真正不确定的那部分 —— 这也正是两种模式并存的意义：**给演进留一条明确的路径**。
 
-> 这条路径对 SDK 有硬约束：**调用方式不能由编排方式决定** —— 否则一次纯内部迁移会变成对外的破坏性变更。见 [sdk-contract.md](./sdk-contract.md) 4.3。
+> 这条路径对 SDK 有硬约束：**调用方式不能由编排方式决定** —— 否则一次纯内部迁移会变成对外的破坏性变更。见 [02-sdk-contract.md](./02-sdk-contract.md) 4.3。
 
 ---
 

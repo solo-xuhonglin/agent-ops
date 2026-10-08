@@ -3,8 +3,8 @@
 - 状态：草稿（待评审）
 - 日期：2026-10-08
 - 范围：编辑、版本化、发布通道与导入导出
-- 关联：[agent-platform-design.md](./agent-platform-design.md) 3.4
-- 领域划分见 [domain-model.md](./domain-model.md) 2.1
+- 关联：[01-agent-platform-design.md](./01-agent-platform-design.md) 3.4
+- 领域划分见 [03-domain-model.md](./03-domain-model.md) 2.1
 
 ---
 
@@ -16,7 +16,7 @@
 
 **编辑的并发与发布的并发是两件事**，分别由实体上的锁版本与发布记录上的状态承担，不混在一起。
 
-**快照是运行的前提** —— 会话与 Run 都绑定已发布的版本，历史执行因此可精确复现（见 [domain-model.md](./domain-model.md) 2.7）。
+**快照是运行的前提** —— 会话与 Run 都绑定已发布的版本，历史执行因此可精确复现（见 [03-domain-model.md](./03-domain-model.md) 2.7）。
 
 ---
 
