@@ -10,9 +10,9 @@
 
 ## 1. 定位
 
-SDK 是平台对外的唯一入口。**它只认三样东西：Agent 名、输入、会话。**
+SDK 是平台对外的唯一入口。**它只认三样东西：key、输入、会话。**
 
-平台内部有工具、Skill、编排方式、版本、节点这些概念 —— 它们全部不出现在契约里。这条是硬约束：**任何内部概念泄漏到 SDK，都会立刻变成无法修改的兼容性负担。**
+平台内部有工具、Skill、凭据、编排方式、版本、节点这些概念 —— 它们全部不出现在契约里。这条是硬约束：**任何内部概念泄漏到 SDK，都会立刻变成无法修改的兼容性负担。**
 
 ---
 
@@ -20,8 +20,8 @@ SDK 是平台对外的唯一入口。**它只认三样东西：Agent 名、输�
 
 | SDK | 语言与形态 | 身份 |
 |---|---|---|
-| 后端 | Python 包，同步 + 异步两套 | 应用凭据 |
-| 前端 | TypeScript 包，纯脚本库 | 调用方签发的用户令牌 |
+| 后端 | Python 包，同步 + 异步两套 | Agent 的永久 key |
+| 前端 | TypeScript 包，纯脚本库 | 换来的临时 key |
 
 **前端 SDK 不提供 UI，不绑定任何框架**，浏览器与 Node 都能跑。它只做四件事：发请求、订阅流、管会话、转发令牌。
 
@@ -34,7 +34,9 @@ SDK 是平台对外的唯一入口。**它只认三样东西：Agent 名、输�
 ## 3. 调用模型
 
 ```
-run = client.submit(agent, input, *, session=None, request_id=None)  → Run
+client = create_client(key, *, user=None)   # 后端给永久 key，前端给临时 key
+
+run = client.submit(input, *, session=None, request_id=None)  → Run
 
 run.wait(*, timeout=None)        → Result
 run.stream(*, from_seq=None)     → Iterator[Event]
@@ -42,9 +44,11 @@ run.cancel()
 run.id / run.session_id / run.status
 
 client.get_run(run_id)           → Run
-client.create_session(agent)     → Session
+client.create_session()          → Session
 client.get_session(session_id)   → Session
 ```
+
+**key 在构造 client 时给，不在 `submit` 时给。** client 是有状态的：它绑定一个 Agent，`submit` 不必每次都重复交一次身份。
 
 **`submit` 永远只返回句柄。** 「怎么等」由句柄上的方法决定 —— 调用方不必在发送的那一刻就决定是阻塞、是流式、还是稍后再取。
 
@@ -65,15 +69,15 @@ client.get_session(session_id)   → Session
 ### 4.1 对话式
 
 ```
-session = client.create_session("report-writer")
-client.submit("report-writer", "帮我看看 X", session=session.id).stream()
-client.submit("report-writer", "再深入点", session=session.id).stream()
+session = client.create_session()
+client.submit("帮我看看 X", session=session.id).stream()
+client.submit("再深入点", session=session.id).stream()
 ```
 
 ### 4.2 任务式
 
 ```
-run = client.submit("report-writer", {"project": 42}, request_id="job-42")
+run = client.submit({"project": 42}, request_id="job-42")
 # 稍后，或者在另一个进程、重启之后
 result = client.get_run(run.id).wait()
 ```
@@ -138,23 +142,29 @@ result = client.get_run(run.id).wait()
 
 ## 6. 鉴权
 
-### 6.1 后端
+### 6.1 后端：永久 key
 
-持应用凭据。凭据明文**只在签发时出现一次**，之后平台只存哈希。
+创建 Agent 时生成，只对那一个 Agent 有效，永久不过期。明文**只在生成时出现一次**，之后平台只存哈希。
 
-### 6.2 前端
+**重置**由管理员操作，旧的立即失效。
 
-**浏览器里不放任何长期凭据。** 前端 SDK 配置一个公开的应用标识，加一个取令牌的回调：
+### 6.2 前端：临时 key
 
-```ts
-const client = createClient({ appId, getToken })
+**浏览器里不放永久 key。** 前端先找**调用方自己的后端**换一个临时 key：
+
+```
+前端 ──→ 调用方后端 ──(永久 key)──→ 平台
+                                     ↓
+前端 ←──── 临时 key（1 小时，只能调那一个 Agent）
 ```
 
-令牌由**调用方自己的后端**签发，平台用该应用登记的公钥验签。SDK 不缓存令牌 —— 每次调用前问一次 `getToken`。
+换 key 时带上终端用户标识，**绑在临时 key 上**，之后前端不用再传。
 
-### 6.3 终端用户不打通
+> 换 key 是平台的 HTTP 接口，由调用方后端调用 —— 它不属于前端 SDK。前端只需要知道去哪里拿这把 key。
 
-调用方传进来的用户标识原样记录，**不当团队成员**，不参与团队内的角色判定。平台不做单点登录，也不信任外部用户目录。
+### 6.3 终端用户标识只是审计
+
+调用时带上来的用户标识**原样记录，不参与判权** —— 判权只看 key。平台不做单点登录，也不信任外部用户目录。
 
 ---
 
@@ -164,6 +174,7 @@ const client = createClient({ appId, getToken })
 |---|---|
 | 编排方式是 ReAct 还是 DAG | 内部实现，改了不影响调用方 |
 | 节点、边、工具名、Skill 名 | 配置细节，调用方不需要也不该依赖 |
+| 凭据从哪来 | Agent 用自己在外部系统的账号，调用方不需要知道也不需要提供 |
 | 版本号 | 平台决定用哪个版本；需要钉版本的场景走内部调试通道 |
 | 模型与参数 | 同上 |
 
@@ -173,3 +184,4 @@ const client = createClient({ appId, getToken })
 
 1. **长任务的执行结果如何交付。** `wait()` 与 `stream()` 覆盖的都是"调用方在等"的场景。跑几分钟、没人等的任务，靠轮询能用但不经济。可选做法：长轮询、回调地址、或者就维持轮询。**后续细化。**
 2. **事件保留多久。** 断线续传的窗口受事件保留期限制，超出后只能重新拉运行状态，拿不到中间过程。保留期与成本直接相关，需要和运行记录的保留策略一起定。
+3. **前端临时 key 怎么续期。** 临时 key 只有 1 小时，页面开着超过 1 小时就会失效。可选做法：调用方自己重建 client（简单，但每处都要写一遍）；或者 client 接受一个取 key 的回调，SDK 在**认证过期**时重取、用同一个 `request_id` 重放（调用方无感，但 SDK 多了一条自动重试路径，得限定它只在这种错误上触发）。
