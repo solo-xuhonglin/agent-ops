@@ -36,7 +36,7 @@ SDK 是平台对外的唯一入口。**它只认三样东西：key、输入、�
 ```
 client = create_client(key, *, user=None)   # 后端给永久 key，前端给临时 key
 
-run = client.submit(input, *, session=None, request_id=None)  → Run
+run = client.submit(content, *, params=None, session=None, request_id=None)  → Run
 
 run.wait(*, timeout=None)        → Result
 run.stream(*, from_seq=None)     → Iterator[Event]
@@ -46,6 +46,7 @@ run.id / run.session_id / run.status
 client.get_run(run_id)           → Run
 client.create_session()          → Session
 client.get_session(session_id)   → Session
+client.get_agent()               → Agent   # 含输入声明，见第 4 节
 ```
 
 **key 在构造 client 时给，不在 `submit` 时给。** client 是有状态的：它绑定一个 Agent，`submit` 不必每次都重复交一次身份。
@@ -64,27 +65,98 @@ client.get_session(session_id)   → Session
 
 ---
 
-## 4. 两个用法
+## 4. 输入
+
+`submit` 收两样东西：
+
+| | 是什么 | 进哪里 |
+|---|---|---|
+| `content` | 这一次的对话内容 | 消息历史 |
+| `params` | 键值对，这次调用的数据 | 渲染进给模型的消息 |
+
+**`params` 存在的理由是：让「这次调用的数据」不混进自然语言。** 一个分析项目管理系统的 Agent 需要一个 project id —— 没有 `params`，就只能让模型从 `content` 里把它猜出来。
+
+### 4.1 输入声明
+
+Agent 定义上有一份**输入声明**，描述它接受哪些参数：
+
+| 键 | 类型 | 必填 | **说明** | 默认值 |
+|---|---|---|---|---|
+| `project_id` | string | ✅ | 项目 ID，来自项目管理系统，形如 `PRJ-1042` | |
+| `include_archived` | bool | | 是否包含已归档项目 | `false` |
+
+**说明字段必填。** 模型对参数的理解完全来自它 —— 缺了它，`project_id` 就只是一串没有含义的字符。这与 Skill 的描述必填是同一条规则（见 [08-tools-and-skills.md](./08-tools-and-skills.md) 2.1）：**凡是给模型看的声明，说明字段必填。**
+
+**声明对调用方可见。** 这是契约里第一次出现「接口声明」这类东西 —— 它不是配置的内容，而是配置**对外承诺的形状**。调用方必须知道有哪些键、哪些必填、什么格式，否则只能猜。经 `client.get_agent()` 拿到。
+
+> 声明一旦对外就是兼容性负担 —— 改名、加必填、改类型都是破坏性变更。
+
+### 4.2 渲染
+
+`params` 渲染成**一段独立标注的数据块**，挂在这次调用的用户消息前面：
+
+```
+<输入参数>
+- project_id（项目 ID，来自项目管理系统，形如 PRJ-1042）: PRJ-1042
+- include_archived（是否包含已归档项目）: true
+</输入参数>
+
+分析这个项目的进度并生成概要
+```
+
+**渲染的是解析后的值。** 调用方没传、声明里有默认值的，填上默认值再渲染；没有默认值又没传的**整条不出现** —— 不渲染成一个空位，那会让模型以为传了值。
+
+**它因此进入会话历史。** 第一轮传了 `project_id`，第三轮模型仍然看得到 —— 这是多轮会话能接上的前提。
+
+### 4.3 它不会被当成指令
+
+**`params` 只进用户消息，不进 System Prompt，也不进任何节点提示词。**
+
+判据是**数据从哪来**：
+
+| 来源 | 可信 | 能进指令面吗 |
+|---|---|---|
+| 图内部产生的数据（上游节点的输出） | ✅ 平台自己的运行结果 | 能 |
+| **调用方给的 `params`** | ❌ 前端场景下就是终端用户 | **不能** |
+
+`params` 进用户消息**不给调用方任何新权限** —— 它本来就能往 `content` 里写任何东西。而一旦进 System Prompt，就往调用方手里多递了一样东西：**改写这个 Agent 指令的能力**。前端用的是临时 key，那意味着任何一个终端用户都能重写系统提示词。
+
+> 这是 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 3.1「引用外发，内容不外发」的另一面：那条管**什么往外发**，这条管**什么往指令面进**。
+
+### 4.4 校验在提交时发生
+
+`params` 不合法（缺必填、类型不对、传了没声明的键）→ `submit` **同步**抛 `ContractError`。
+
+不能等跑起来才失败 —— 那样调用方拿到的是一个注定失败的 id。
+
+校验发生在 `manager`（接 `submit` 的那个服务），它读的是 Agent 的**输入声明**这一个字段 —— **不是编排结构**，[01-agent-platform-design.md](./01-agent-platform-design.md) 3.3 那条约束不受影响。
+
+---
+
+## 5. 两个用法
 
 调用方式**由调用方选，不由 Agent 的编排方式决定**。
 
-### 4.1 对话式
+### 5.1 对话式
 
 ```
 session = client.create_session()
-client.submit("帮我看看 X", session=session.id).stream()
-client.submit("再深入点", session=session.id).stream()
+client.submit("分析这个项目的进度", params={"project_id": "PRJ-1042"},
+              session=session.id).stream()
+client.submit("重点看延期的那几个", session=session.id).stream()
 ```
 
-### 4.2 任务式
+### 5.2 任务式
 
 ```
-run = client.submit({"project": 42}, request_id="job-42")
+run = client.submit("分析这个项目的进度，生成概要",
+                    params={"project_id": "PRJ-1042"},
+                    request_id="job-42")
 # 稍后，或者在另一个进程、重启之后
 result = client.get_run(run.id).wait()
 ```
 
-### 4.3 为什么不绑定编排方式
+### 5.3 为什么不绑定编排方式
 
 编排方式（ReAct / DAG）是内部实现，SDK 承诺调用方看不见它。若调用方式反过来由编排方式决定，会出现：
 
@@ -94,9 +166,9 @@ result = client.get_run(run.id).wait()
 
 ---
 
-## 5. 契约要点
+## 6. 契约要点
 
-### 5.1 幂等
+### 6.1 幂等
 
 调用方生成 `request_id`。同一个 `(Agent, request_id)` 重复提交，返回**同一个运行**，不会产生第二次执行。
 
@@ -108,7 +180,7 @@ result = client.get_run(run.id).wait()
 
 **队列的重投不是一次新提交** —— 它恢复的是同一个 Run，走的是另一条路（见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 第 5 节）。
 
-### 5.2 会话
+### 6.2 会话
 
 不传 `session` 就是单次运行，不建会话。传了就续上多轮上下文。
 
@@ -118,13 +190,13 @@ result = client.get_run(run.id).wait()
 
 `get_session` 返回会话、消息历史，以及**当前正在跑的那个 Run**（没有则为空）—— 页面刷新、或者第二个标签页打开时，靠它接上（见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 7.1）。
 
-### 5.3 超时与取消
+### 6.3 超时与取消
 
 **`wait` 超时只是调用方不等了，运行继续。** 要停下来必须显式 `cancel()`。已产生的成本照记。
 
 `run.status` 是这五个之一：`pending` / `running` / `succeeded` / `failed` / `cancelled`。**`wait` 超时不改变状态** —— 它仍是 `running`。
 
-### 5.4 断线续传
+### 6.4 断线续传
 
 事件带**单调递增的序号**，`stream(from_seq=n)` 从断点接着推。序号**在每个 Run 内独立编号**，从 1 开始 —— 它是 Run 的局部坐标，不是全局标识。
 
@@ -134,7 +206,7 @@ result = client.get_run(run.id).wait()
 
 > 这条对服务端是硬要求：**动作事实必须落成可重放的日志**，不能只走连接。见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 第 4 节。
 
-### 5.5 事件
+### 6.5 事件
 
 事件描述**这次运行做了什么**，与运行内部的动作一一对应。分两类：
 
@@ -158,7 +230,7 @@ result = client.get_run(run.id).wait()
 
 `_call` 与 `_result` 靠**动作 id** 配对 —— 不依赖严格交替（ReAct 一轮可以并发调多个工具，顺序会交错）。**未知事件类型必须忽略**，这样加一种动作类型就是纯增量。
 
-### 5.6 错误
+### 6.6 错误
 
 契约层面的错误由 SDK 抛异常；**执行失败是运行的状态，不是异常** —— 它在事件与运行状态上表达，`wait()` 时才转为异常。
 
@@ -167,21 +239,21 @@ result = client.get_run(run.id).wait()
 | `AuthError` | key 无效，或已被重置 |
 | `QuotaError` | 超出配额或触发限流。**v1 不产生** —— 配额只建不用（见 [10-permissions.md](./10-permissions.md) 2.2） |
 | `ContractError` | 参数或协议不合法 |
-| `ConflictError` | 会话里已有活跃的运行，这次提交被拒绝（见 5.2） |
+| `ConflictError` | 会话里已有活跃的运行，这次提交被拒绝（见 6.2） |
 | `RunFailed` | 运行以失败结束（`wait` 时抛出） |
 | `Timeout` | `wait` 超时；**运行仍在继续** |
 
 ---
 
-## 6. 鉴权
+## 7. 鉴权
 
-### 6.1 后端：永久 key
+### 7.1 后端：永久 key
 
 创建 Agent 时生成，只对那一个 Agent 有效，永久不过期。明文**只在生成时出现一次**，之后平台只存哈希。**平台不转交明文** —— 把它交给调用方是一次运维动作，由当时操作的人完成（创建时是编辑，重置时是管理员）。
 
 **重置**由管理员操作，旧的立即失效。
 
-### 6.2 前端：临时 key
+### 7.2 前端：临时 key
 
 **浏览器里不放永久 key。** 前端先找**调用方自己的后端**换一个临时 key：
 
@@ -199,15 +271,15 @@ result = client.get_run(run.id).wait()
 
 > 换 key 是平台的 HTTP 接口，由调用方后端调用 —— 它不属于前端 SDK。前端只需要知道去哪里拿这把 key。
 
-### 6.3 终端用户标识只是审计
+### 7.3 终端用户标识只是审计
 
 调用时带上来的用户标识**原样记录，不参与判权** —— 判权只看 key。平台不做单点登录，也不信任外部用户目录。
 
 ---
 
-## 7. 屏蔽细节
+## 8. 屏蔽细节
 
-对外是**一次运行的行为记录**，不是平台内部的结构。边界是：**引用外发，内容不外发。**
+对外是**一次运行的行为记录**，不是平台内部的结构。边界是：**引用外发，内容不外发** —— 唯一的例外是**输入声明**，它既不是「引用」也不是「内容」，是接口声明，对外可见（见第 4 节）。
 
 | 不暴露 | 原因 |
 |---|---|
@@ -221,7 +293,7 @@ result = client.get_run(run.id).wait()
 
 ---
 
-## 8. 待定项
+## 9. 待定项
 
 1. **长任务的执行结果如何交付。** `wait()` 与 `stream()` 覆盖的都是"调用方在等"的场景。**定时任务是后端的主要场景，而它正是"没人等"的那一类** —— 靠轮询能用但不经济。可选做法：长轮询、回调地址、或者就维持轮询。**后续细化。**
 2. **运行日志保留多久。** 它就是重放窗口。超出窗口后 `from_seq` 直接报错，调用方只能重新拉运行状态、拿不到中间过程（见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 4.4）。保留期与成本直接相关 —— 日志同时是运行记录、观测数据与重放窗口，一处策略管三件事。

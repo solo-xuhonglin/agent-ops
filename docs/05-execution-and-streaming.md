@@ -4,7 +4,7 @@
 - 日期：2026-10-08
 - 范围：一次运行怎么记录、怎么推给调用方、断线怎么续、崩溃怎么重投
 - 关联：[01-agent-platform-design.md](./01-agent-platform-design.md) 3.3
-- 编排结构见 [04-orchestration.md](./04-orchestration.md)；对外契约见 [02-sdk-contract.md](./02-sdk-contract.md) 第 5 节
+- 编排结构见 [04-orchestration.md](./04-orchestration.md)；对外契约见 [02-sdk-contract.md](./02-sdk-contract.md) 第 6 节
 - 领域位置见 [03-domain-model.md](./03-domain-model.md) 1.2
 
 ---
@@ -101,6 +101,7 @@
 
 - **工具名、分支标签、子 Agent 名** —— 指向配置的**引用**，租户自己起的名字，外发
 - **System Prompt 全文、Skill 正文、凭据、模型参数、节点 id 与图的形状** —— 配置的**内容**，不外发
+- **调用方给的 `params`** —— 这次运行的数据，外发。它进的是**用户消息**，不进指令面，判据与渲染见 [02-sdk-contract.md](./02-sdk-contract.md) 第 4 节
 
 于是 `llm_call` 不带输入消息（那里面装着 System Prompt 与 Skill 正文），而 `tool_call` 带参数（参数是这次运行生成的数据，不是配置）。
 
