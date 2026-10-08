@@ -4,7 +4,7 @@
 - 日期：2026-10-08
 - 范围：Agent 的两种能力来源 —— 能执行的东西与要读的知识
 - 关联：[01-agent-platform-design.md](./01-agent-platform-design.md) 3.5
-- 两者都是并列的独立领域、**都按租户隔离**，见 [03-domain-model.md](./03-domain-model.md) 2.3 与 [07-credentials.md](./07-credentials.md) 第 2 节
+- 两者都是并列的独立领域、**都按租户隔离**，见 [03-domain-model.md](./03-domain-model.md) 2.3 与 [08-credentials.md](./08-credentials.md) 第 2 节
 
 ---
 
@@ -23,7 +23,7 @@
 
 工具的认证信息**不写在工具里**。工具只声明它需要一份凭据，用哪一份由 **Agent 挂载时**决定 —— "以谁的权限调外部系统"因此跟着 Agent 走。
 
-凭据是**租户登记的外部账号**（Agent 在外部系统里的专用身份），加密存储，明文不落库。详见 [07-credentials.md](./07-credentials.md)。
+凭据是**租户登记的外部账号**（Agent 在外部系统里的专用身份），加密存储，明文不落库。详见 [08-credentials.md](./08-credentials.md)。
 
 ---
 
@@ -41,4 +41,4 @@
 
 Tool 与 Skill **独立版本化**，与 Agent 一样走 `release` 域。
 
-Agent 发布时，快照里记的是**挂载到的版本号**，不是"当前最新" —— 所以改一个 Tool 不影响已发布的 Agent，除非把它重新发布（见 [05-release.md](./05-release.md) 第 1 节）。
+Agent 发布时，快照里记的是**挂载到的版本号**，不是"当前最新" —— 所以改一个 Tool 不影响已发布的 Agent，除非把它重新发布（见 [06-release.md](./06-release.md) 第 1 节）。
