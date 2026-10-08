@@ -3,7 +3,7 @@
 - 状态：草稿（待评审）
 - 日期：2026-10-08
 - 范围：领域划分、边界判断与实现约定
-- 关联：[agent-platform-design.md](./agent-platform-design.md) 第 4 节
+- 关联：[agent-platform-design.md](./agent-platform-design.md) 3.2
 
 ---
 
@@ -154,5 +154,5 @@ Agent 的定义、编排结构、能力挂载、子 Agent 引用、对外开放�
 
 v1 不做的领域，将来加回时的位置：
 
-- **凭据管理（`secrets_`）**：独立领域，被 `tool` 依赖 —— 工具的认证信息是它最主要的使用者。**它的加回优先级应该高于其他功能**，见 [agent-platform-design.md](./agent-platform-design.md) 7.2 记的当前风险。
+- **凭据管理（`secrets_`）**：独立领域，被 `tool` 依赖 —— 工具的认证信息是它最主要的使用者。**它的加回优先级应该高于其他功能**，见 [tools-and-skills.md](./tools-and-skills.md) 1.2 记的当前风险。
 - **模型目录（`model_`）**：独立领域，被 `agent` 依赖。把模型标识从 Agent 定义与节点上抽走，换成引用；单价表、配额、路由策略随之落地。

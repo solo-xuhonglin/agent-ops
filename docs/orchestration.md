@@ -3,7 +3,7 @@
 - 状态：草稿（待评审）
 - 日期：2026-10-08
 - 范围：Agent 的两种编排方式，以及它们如何编译与运行
-- 关联：[agent-platform-design.md](./agent-platform-design.md) 第 5 节
+- 关联：[agent-platform-design.md](./agent-platform-design.md) 3.3
 
 ---
 
