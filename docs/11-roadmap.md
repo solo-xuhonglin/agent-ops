@@ -48,3 +48,4 @@
 13. **`manager` 什么时候拆开。** 它同时管连接、派发与对外契约，变更驱动不是单一的（见 [01-agent-platform-design.md](./01-agent-platform-design.md) 第 5 节）。更干净的切法是拆成 `hub`（连接与消息，不认识领域）与 `dispatcher`（派发与运行状态）—— **什么时候拆，取决于哪一样先变成瓶颈**。
 14. **`manager` 互连的规模上限。** 全互联是 N²（见 [06-internal-protocol.md](./06-internal-protocol.md) 3.4）。池的粒度小的时候没问题 —— 上限取多少，以及超了之后是分层还是按 Run 选中继，都没有方案。
 15. **心跳里的进度要不要用于判死。** 心跳能证明"进程活着"，证明不了"这一步在推进"（见 [06-internal-protocol.md](./06-internal-protocol.md) 2.1）。要判断卡死得靠"这一步跑了多久"，但**一次正常的慢调用和一次卡死长得一模一样** —— 据它重投会把正常运行反复打断，取值有多大余地没有标准。
+16. **巡检的 `T` 与保活间隔取多少。** 前者要大于「`worker` 重连 + 报到」，后者要小于链路上最短的超时（nginx 的 `proxy_read_timeout` 默认 60 秒）。两个值一起定。见 [06-internal-protocol.md](./06-internal-protocol.md) 1.1 与 2.5。

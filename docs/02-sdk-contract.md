@@ -34,35 +34,37 @@ SDK 是平台对外的唯一入口。**它只认三样东西：key、输入、�
 ## 3. 调用模型
 
 ```
-client = create_client(key, *, user=None, session=None)
-#  没传 session → 新开一个；传了 → 复用
+client = create_client(key, *, user=None)   # 后端给永久 key，前端给临时 key
 
-client.session_id                # 会话 id
-
-client.submit(content, *, params=None, output_schema=None, request_id=None)  → Run
+client.new_session()             → Session   # 新开一段对话
+client.get_session(session_id)   → Session   # 取已有的
 client.get_run(run_id)           → Run
-client.get_session()             → Session   # 绑定中的那个：历史 + 正在跑的那个 Run
 client.get_agent()               → Agent     # 只含输入声明，见 4.1
 
+session.submit(content, *, params=None, output_schema=None, request_id=None)  → Run
+session.stream(*, from_run=None, from_seq=None)   → Iterator[Event]
+session.id / session.current_run
+
 run.wait(*, timeout=None)        → Result
-run.stream(*, from_seq=None)     → Iterator[Event]
 run.cancel()
 run.id / run.session_id / run.status
 ```
 
-**client 是有状态的：它绑定一个 Agent 和一段对话。** `key` 决定租户、Agent 与主体，`session` 决定这段对话 —— **它们一起确定「这次调用是谁、属于哪一段」**，所以都在构造时给。`submit` 只收**每次都会变**的东西。
+**两层：`client` 是 Agent 的句柄，`session` 是对话的句柄。**
+
+`key` 决定租户、Agent 与主体 —— client 只绑这个。**会话是显式取的**：`new_session()` 新开，`get_session(id)` 取已有的。**所有跟这段对话有关的动作都挂在 `session` 上**：提交、订阅、当前 Run。
 
 **每个 Run 都属于一个会话。** 没有「不带会话的运行」—— 一次性的调用（定时任务）也新开一个，于是模型只有一条链：**会话 → 运行 → 日志**。
 
-**`submit` 同步拿到 id**，但执行本身是异步的。平台在这一步就把 Run / 会话行落下来（由 `manager` 写 —— 它是这两张表的写者，见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 第 1 节），再把句柄交回；否则调用方手上的 id 无法立刻用于 `get_run` 与 `stream`。
+**`submit` 同步拿到 id**，但执行本身是异步的。平台在这一步就把 Run 行落下来（由 `manager` 写 —— 它是这两张表的写者，见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 第 1 节），再把句柄交回；否则调用方手上的 id 无法立刻用于 `get_run`。
 
 **`submit` 永远只返回句柄。** 「怎么等」由句柄上的方法决定 —— 调用方不必在发送的那一刻就决定是阻塞、是流式、还是稍后再取。
 
 这样安排带来三件事：
 
-- **取结果**这个维度被句柄吸收，不再是"调哪个方法"。
-- **上下文**由 client 上的 `session` 表达。
-- **断线续传**与"稍后取结果"变成同一行代码：`get_run(run_id).stream(from_seq=n)`。
+- **取结果**由句柄吸收，不再是"调哪个方法"。
+- **上下文**由 `session` 对象表达 —— 它同时是**订阅的单位**（见 6.4）。
+- **断线续传**与"稍后取结果"变成同一行代码：`client.get_run(run_id).wait()`。
 
 扁平 API（`invoke` / `stream` 各一个方法）做不到最后一点 —— 那里"重新订阅"只能重发请求，会重复执行。
 
@@ -169,19 +171,26 @@ Agent 定义上有一份**输入声明**，描述它接受哪些参数：
 ### 5.1 对话式
 
 ```
-client = create_client(key)          # 新开一个会话
-client.submit("分析这个项目的进度", params={"project_id": "PRJ-1042"}).stream()
-client.submit("重点看延期的那几个").stream()
+client = create_client(key)
+session = client.new_session()
+
+session.submit("分析这个项目的进度", params={"project_id": "PRJ-1042"})
+for event in session.stream():       # 订阅这段对话，空闲时也接着
+    ...
+
+session.submit("重点看延期的那几个")
 ```
 
 ### 5.2 任务式
 
 ```
-client = create_client(key)          # 定时任务：每次执行各开一个会话
-run = client.submit("分析这个项目的进度，生成概要",
-                    params={"project_id": "PRJ-1042"},
-                    output_schema=REPORT_SCHEMA,
-                    request_id="job-2026-10-09")
+client = create_client(key)
+session = client.new_session()       # 定时任务：每次执行各开一个
+run = session.submit("分析这个项目的进度，生成概要",
+                     params={"project_id": "PRJ-1042"},
+                     output_schema=REPORT_SCHEMA,
+                     request_id="job-2026-10-09")
+
 # 稍后，或者在另一个进程、重启之后
 result = client.get_run(run.id).wait()
 ```
@@ -212,13 +221,15 @@ result = client.get_run(run.id).wait()
 
 ### 6.2 会话
 
-**会话在构造 client 时确定**：不传就新开一个，传了就续上。**每个 Run 都属于一个会话** —— 一次性的调用（定时任务）也新开一个。
+**会话是显式取的**：`new_session()` 新开一个，`get_session(id)` 取已有的。**每个 Run 都属于一个会话** —— 一次性的调用（定时任务）也新开一个。
 
 **一个会话只有一个主体** —— 前端提交的归那个终端用户，后端提交的归调用方自己。两个终端用户不会落进同一个会话。
 
 **同一个会话同一时刻只有一个活跃 Run。** 运行中再提交会被拒绝，抛 `ConflictError`。**不同会话之间不互相阻塞** —— 所以定时任务每次各开一个，并发是天然的。
 
-`get_session()` 返回**绑定中的那个**会话、消息历史，以及**当前正在跑的那个 Run**（没有则为空）—— 页面刷新、或者第二个标签页打开时，靠它接上（见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 7.1）。要读别的会话，造一个绑定它的 client。
+**订阅挂在会话上**（见 6.4）：连接建立时补一次当前状态，之后靠事件推进。所以**空闲时也有一条连接** —— 另一个标签页提交的 Run 会立刻推过来。
+
+`session.current_run` 给出正在跑的那个 Run（没有则为空）—— 页面刷新、第二个标签页打开时靠它接上（见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 7.1）。
 
 ### 6.3 超时与取消
 
@@ -228,7 +239,9 @@ result = client.get_run(run.id).wait()
 
 ### 6.4 断线续传
 
-事件带**单调递增的序号**，`stream(from_seq=n)` 从断点接着推。序号**在每个 Run 内独立编号**，从 1 开始 —— 它是 Run 的局部坐标，不是全局标识。
+事件带**单调递增的序号**。序号**在每个 Run 内独立编号**，从 1 开始 —— 它是 Run 的局部坐标，不是全局标识。
+
+**订阅的单位是会话，所以游标是一对：`(run_id, seq)`。** 重连时把它交回去，服务端从那个位置接着推 —— 先把上一个 Run 剩下的部分推完，再接上当前这个。
 
 **传输是 SSE**，用 `fetch` 流式读，不用原生 `EventSource` —— 后者设不了自定义请求头。见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 4.1。
 
@@ -327,6 +340,6 @@ result = client.get_run(run.id).wait()
 ## 9. 待定项
 
 1. **长任务的执行结果如何交付。** `wait()` 与 `stream()` 覆盖的都是"调用方在等"的场景。**定时任务是后端的主要场景，而它正是"没人等"的那一类** —— 靠轮询能用但不经济。可选做法：长轮询、回调地址、或者就维持轮询。**后续细化。**
-2. **运行日志保留多久。** 它就是重放窗口。超出窗口后 `from_seq` 直接报错，调用方只能重新拉运行状态、拿不到中间过程（见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 4.4）。保留期与成本直接相关 —— 日志同时是运行记录、观测数据与重放窗口，一处策略管三件事。
+2. **运行日志保留多久。** 它就是重放窗口。游标落在窗口之外直接报错，调用方只能重新拉运行状态、拿不到中间过程（见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 4.4）。保留期与成本直接相关 —— 日志同时是运行记录、观测数据与重放窗口，一处策略管三件事。
 3. **前端临时 key 怎么续期。** 临时 key 只有 1 小时，页面开着超过 1 小时就会失效。可选做法：调用方自己重建 client（简单，但每处都要写一遍）；或者 client 接受一个取 key 的回调，SDK 在**认证过期**时重取、用同一个 `request_id` 重放（调用方无感，但 SDK 多了一条自动重试路径，得限定它只在这种错误上触发）。
 4. **前端要不要收紧到不能带 `output_schema`。** v1 可以带 —— schema 是调用方给的，而前端那一份终端用户改得到，用字段说明做注入可以把配置内容掏进一个数据字段。这与「平台不替调用方管它自己的终端用户」（见 [10-permissions.md](./10-permissions.md) 2.3）一致，所以接受。要收紧的话，最省事的是前端 SDK 不带这个参数，代价是破坏两个 SDK 的对称（见 2.1）。
