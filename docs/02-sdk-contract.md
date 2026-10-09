@@ -219,6 +219,7 @@ result = client.get_run(run.id).wait()
 | `tool_call` / `tool_result` | 一次工具调用的起止，带工具名与参数 / 结果或错误 |
 | `agent_call` / `agent_result` | 一次子 Agent 调用的起止。**子运行的内部事件不外发** —— 事件流是父运行的序列 |
 | `branch_taken` | 一次条件判定，带分支标签 |
+| `context_compacted` | 一次上下文压缩 —— **引擎的行为，不是编排动作** —— 带压缩前后的长度与被压掉的范围；**摘要全文不外发** |
 | `run_finished` / `run_failed` | 终态，带结果或错误详情 |
 
 **流式事件** —— 不带序号，不重放，直接应用：
