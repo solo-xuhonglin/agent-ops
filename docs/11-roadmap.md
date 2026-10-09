@@ -46,6 +46,6 @@
 11. **生产环境的日常变更是否改走数据库。** 环境稳定之后，变更可能主要靠直接的 SQL 变更，平台的编辑与发布退化为测试与应急手段（见 [07-release.md](./07-release.md) 第 3 节）。**这条路绕开版本、审计与快照** —— 改了库里的行，不产生新版本、不进审计、不更新发布记录。届时得先回答"怎么记录、怎么防止漂移"，v1 不设计。
 12. **步骤重试的上限与退避。** 重投是 at-least-once，未完成的那一步会被重试（见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 第 5 节）。超过上限就把 Run 判失败 —— 具体几次、要不要退避，等真实故障率出来再定。
 13. **`manager` 什么时候拆开。** 它同时管连接、派发与对外契约，变更驱动不是单一的（见 [01-agent-platform-design.md](./01-agent-platform-design.md) 第 5 节）。更干净的切法是拆成 `hub`（连接与消息，不认识领域）与 `dispatcher`（派发与运行状态）—— **什么时候拆，取决于哪一样先变成瓶颈**。
-14. **`manager` 互连的规模上限。** 全互联是 N²（见 [06-internal-protocol.md](./06-internal-protocol.md) 3.4）。池的粒度小的时候没问题 —— 上限取多少，以及超了之后是分层还是按 Run 选中继，都没有方案。
+14. **`manager` 什么时候多副本。** v1 一个副本（见 [01-agent-platform-design.md](./01-agent-platform-design.md) 2.3）。多个副本要补三样：副本之间一条长连接、一张 `run → manager` 的路由表、一份副本成员视图。而 `06` §2.5 那个「等 `worker` 连上再巡检」的门控在多副本下不成立 ——「第一个连上」不等于「都连上了」。**在那之前，`manager` 重启这一段时间里没有别人接管，全平台的连接一起断。**
 15. **心跳里的进度要不要用于判死。** 心跳能证明"进程活着"，证明不了"这一步在推进"（见 [06-internal-protocol.md](./06-internal-protocol.md) 2.1）。要判断卡死得靠"这一步跑了多久"，但**一次正常的慢调用和一次卡死长得一模一样** —— 据它重投会把正常运行反复打断，取值有多大余地没有标准。
-16. **巡检的 `T` 与保活间隔取多少。** 前者要大于「`worker` 重连 + 报到」，后者要小于链路上最短的超时（nginx 的 `proxy_read_timeout` 默认 60 秒）。两个值一起定。见 [06-internal-protocol.md](./06-internal-protocol.md) 1.1 与 2.5。
+16. **巡检周期与保活间隔取多少。** 前者决定一个 Run 无人接管多久才被发现；后者要小于链路上最短的超时（nginx 的 `proxy_read_timeout` 默认 60 秒）。见 [06-internal-protocol.md](./06-internal-protocol.md) 1.1 与 2.5。
