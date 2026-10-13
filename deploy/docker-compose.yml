@@ -8,6 +8,9 @@ services:
   config:
     build: ../config
     restart: unless-stopped
+    environment:
+      # Inside the compose network the DB host is the service name.
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-agentops}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-agentops}
 
   worker:
     build: ../worker
@@ -20,8 +23,13 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-agentops}
       POSTGRES_USER: ${POSTGRES_USER:-agentops}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    ports:
+      # Localhost only: host-run tests reach the database; nothing outside the machine can.
+      - "127.0.0.1:15432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Creates agentops_test on first init so the suite never touches the real db.
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agentops} -d ${POSTGRES_DB:-agentops}"]
       interval: 5s
