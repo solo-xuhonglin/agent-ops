@@ -8,6 +8,10 @@ services:
   config:
     build: ../config
     restart: unless-stopped
+    depends_on:
+      # Startup runs create_all, so the database must be ready first.
+      postgres:
+        condition: service_healthy
     environment:
       # Inside the compose network the DB host is the service name.
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-agentops}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-agentops}
