@@ -1,0 +1,50 @@
+name: agent-ops
+
+services:
+  manager:
+    build: ../manager
+    restart: unless-stopped
+
+  config:
+    build: ../config
+    restart: unless-stopped
+
+  worker:
+    build: ../worker
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-agentops}
+      POSTGRES_USER: ${POSTGRES_USER:-agentops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agentops} -d ${POSTGRES_DB:-agentops}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Serves the config UI's static assets; the edge nginx below is the only
+  # container with a published port.
+  web:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    volumes:
+      - ../web:/usr/share/nginx/html:ro
+
+  nginx:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    ports:
+      - "${EDGE_PORT:-8080}:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - web
+
+volumes:
+  pgdata:

@@ -1,0 +1,22 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# ---- Secrets ----
+.env
+.env.*
+!.env.example
+*.pem
+*.jwk
+secrets/
+
+# ---- Node ----
+node_modules/
+
+# ---- Agent workspace ----
+.superpowers/
