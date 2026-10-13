@@ -32,7 +32,7 @@
 
 **拆在这个位置是一条硬边界。** 前两张是结构性的、可穷举的字段 —— 会话、提交、归属。**提交必须同步拿到一个持久的 id**（见 [02-sdk-contract.md](./02-sdk-contract.md) 第 3 节），而那一刻还没有 `worker`，所以只能由 `manager` 写。
 
-`execution_run_log` 装的是**类型与载荷**，也就是执行模型本身 —— 它会随编排方式变。写者放在 `worker`，领域模型因此仍然只有一份定义（`shared/`，见 [01-agent-platform-design.md](./01-agent-platform-design.md) 第 4 节）。
+`execution_run_log` 装的是**类型与载荷**，也就是执行模型本身 —— 它会随编排方式变，跟着执行引擎走，写它的是执行它的 `worker`；词汇表只在 `shared/` 定义一份（见 [01-agent-platform-design.md](./01-agent-platform-design.md) 第 4 节）。
 
 **Run 的状态就是这串日志的尾部**，不另存一列 —— 存了就会出现"`manager` 写 `pending`、`worker` 改 `running`"这种同一列两个写者。
 
