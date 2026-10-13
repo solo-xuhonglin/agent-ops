@@ -17,8 +17,9 @@ if database is None or not database.endswith("_test"):
 
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
-from config import db  # noqa: E402
-from config.models import Base  # noqa: E402
+from config.models import Base
+
+from config import db
 
 
 @pytest.fixture(scope="session", autouse=True)

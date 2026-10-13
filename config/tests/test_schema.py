@@ -1,12 +1,12 @@
 import uuid
 
 import pytest
+from config.models import Tenant
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from config import db
-from config.models import Tenant
 
 
 def test_tenant_round_trip():
@@ -30,6 +30,5 @@ def test_duplicate_tenant_name_rejected():
     with Session(db.engine) as session, session.begin():
         session.add(Tenant(name=name))
 
-    with pytest.raises(IntegrityError):
-        with Session(db.engine) as session, session.begin():
-            session.add(Tenant(name=name))
+    with pytest.raises(IntegrityError), Session(db.engine) as session, session.begin():
+        session.add(Tenant(name=name))
