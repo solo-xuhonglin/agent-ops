@@ -14,10 +14,10 @@ from manager.app import MANAGER_TABLES, app
 from shared.models import Base, ExecutionRun, RunLog
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
+from util import TEST_KEY
 
 from manager import internal
 
-TEST_KEY = "manager-test-key"
 engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)
 
 

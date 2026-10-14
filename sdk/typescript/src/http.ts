@@ -19,7 +19,10 @@ export class Http {
   async json(method: string, path: string, body?: unknown): Promise<any> {
     const response = await fetch(this.baseUrl + path, {
       method,
-      headers: { Authorization: `Bearer ${this.key}` },
+      headers: {
+        Authorization: `Bearer ${this.key}`,
+        ...(body !== undefined && { "Content-Type": "application/json" }),
+      },
       ...(body !== undefined && { body: JSON.stringify(body) }),
       signal: AbortSignal.timeout(this.timeoutMs),
     });

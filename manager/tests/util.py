@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from manager import internal
 
+TEST_KEY = "manager-test-key"
+
 # Soft state a uvicorn-thread lifespan rebinds; snapshotted around live_server.
 _GLOBAL_STATE = (
     "workers",

@@ -116,6 +116,7 @@ test("submit returns the run snapshot and sends all fields", async () => {
       output_schema: { type: "object" },
       request_id: "r1",
     });
+    assert.equal(fake.requests.at(-1)?.headers["content-type"], "application/json");
   });
 });
 
