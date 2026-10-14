@@ -17,6 +17,8 @@ services:
     environment:
       # Inside the compose network the DB host is the service name.
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-agentops}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-agentops}
+      # The seed key is hashed before it is ever stored.
+      SEED_AGENT_KEY: ${SEED_AGENT_KEY:?set SEED_AGENT_KEY in .env}
 
   worker:
     build:
