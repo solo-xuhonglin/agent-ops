@@ -2,46 +2,77 @@ import asyncio
 import logging
 import os
 import socket
+import threading
+import uuid
 
+from shared.events import public_event
+from shared.models import RunLog
 from shared.wire import encode, read_frame
+from sqlalchemy.orm import Session
 
 from worker import db
-from worker.executor import execute
+from worker import engine as engine_module
+from worker.llm import LlmClient, llm_from_env
 
 log = logging.getLogger(__name__)
 
+# Cancellation relays: the persistent link sets the run's Event, the engine
+# thread reads it between chunks (docs/05 §6).
+cancel_events: dict[str, threading.Event] = {}
 
-async def _connect() -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+
+def _pump(dispatch: dict, llm: LlmClient) -> None:
+    """The worker's run path, on a dedicated Run connection (docs/06 §2.2).
+
+    Each durable row lands before its wire frame rides out (docs/06 §2.3);
+    stream frames ride out immediately, never persisted.
+    """
+    run_id = dispatch["run_id"]
+    cancelled = cancel_events.setdefault(run_id, threading.Event())
     host = os.environ.get("MANAGER_HOST", "manager")
     port = int(os.environ.get("MANAGER_PORT", "9000"))
-    return await asyncio.open_connection(host, port)
-
-
-async def _run_one(dispatch: dict) -> None:
-    """Open the Run connection for the dispatched run, execute, close it.
-
-    The Run connection's presence is the manager's evidence the run started
-    (docs/06 §2.2); it must outlive the log writes but nothing else.
-    """
-    worker_id = os.environ.get("WORKER_ID", socket.gethostname())
-    _reader, writer = await _connect()
+    sock = socket.create_connection((host, port))
     try:
-        writer.write(
-            encode("state", {"worker_id": worker_id, "run_id": dispatch["run_id"], "epoch": dispatch["epoch"]})
+        sock.sendall(
+            encode(
+                "state",
+                {
+                    "worker_id": os.environ.get("WORKER_ID", socket.gethostname()),
+                    "run_id": run_id,
+                    "epoch": dispatch["epoch"],
+                },
+            )
         )
-        await writer.drain()
-        # Rows land first, then the entries ride the wire (docs/06 §2.3).
-        for entry in await asyncio.to_thread(execute, db.engine, dispatch):
-            writer.write(encode(entry["type"], entry["data"]))
-            await writer.drain()
+        for item in engine_module.execute(db.engine, dispatch, llm, cancelled):
+            if item["kind"] == "stream":
+                sock.sendall(encode(item["type"], item["data"]))
+                continue
+            with Session(db.engine) as session, session.begin():
+                session.add(
+                    RunLog(
+                        run_id=uuid.UUID(run_id),
+                        seq=item["seq"],
+                        action_id=item["action_id"],
+                        type=item["type"],
+                        payload=item["payload"],
+                    )
+                )
+            entry = {
+                "type": item["type"],
+                "data": {"run_id": run_id, "seq": item["seq"], "action_id": item["action_id"], **item["payload"]},
+            }
+            sock.sendall(encode(item["type"], public_event(entry)["data"]))
+    except OSError:
+        log.warning("run connection lost for %s; the sweep re-dispatches it", run_id)
     finally:
-        writer.close()
-        await writer.wait_closed()
+        sock.close()
+        cancel_events.pop(run_id, None)
 
 
 async def run() -> None:
     worker_id = os.environ.get("WORKER_ID", socket.gethostname())
     heartbeat = float(os.environ.get("HEARTBEAT_INTERVAL", "5"))
+    llm = llm_from_env()
     while True:
         try:
             reader, writer = await _connect()
@@ -61,9 +92,11 @@ async def run() -> None:
                 while True:
                     type_, data = await read_frame(reader)
                     if type_ == "dispatch":
-                        asyncio.create_task(_run_one(data))
+                        asyncio.create_task(asyncio.to_thread(_pump, data, llm))
                     elif type_ == "cancel":
-                        log.info("cancel noted for %s", data.get("run_id"))
+                        event = cancel_events.get(data.get("run_id"))
+                        if event is not None:
+                            event.set()
                     else:
                         log.error("unknown frame %r on internal link; dropping it", type_)
                         raise ConnectionError("unknown frame type")
@@ -72,3 +105,9 @@ async def run() -> None:
         except (ConnectionError, OSError, asyncio.IncompleteReadError):
             log.warning("link lost; reconnecting")
             await asyncio.sleep(float(os.environ.get("RECONNECT_DELAY", "2")))
+
+
+async def _connect() -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+    host = os.environ.get("MANAGER_HOST", "manager")
+    port = int(os.environ.get("MANAGER_PORT", "9000"))
+    return await asyncio.open_connection(host, port)

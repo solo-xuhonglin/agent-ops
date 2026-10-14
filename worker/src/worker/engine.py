@@ -116,10 +116,28 @@ def execute(engine, dispatch: dict, llm: LlmClient, cancelled: threading.Event):
         yield row("run_finished", None, {"status": "cancelled", "result": None})
         return
 
-    history = session_messages(engine, dispatch["session_id"], spec)
-    user_message = render_user_message(dispatch["input"]["content"], dispatch["input"]["params"], spec)
-    messages = [{"role": "system", "content": spec.instructions}, *history, {"role": "user", "content": user_message}]
-    action_id = str(uuid.uuid4())
+    # An open llm_call is retried as-is: a NEW row with the SAME action_id and
+    # the messages copied from the log — no model re-decision (docs/05 §5).
+    pending: dict[str, RunLog] = {}
+    for row_ in rows:
+        if row_.type == EventType.llm_call:
+            pending[row_.action_id] = row_
+        elif row_.type == EventType.llm_result:
+            pending.pop(row_.action_id, None)
+
+    if pending:
+        resume = max(pending.values(), key=lambda r: r.seq)
+        action_id = resume.action_id
+        messages = resume.payload["messages"]
+    else:
+        history = session_messages(engine, dispatch["session_id"], spec)
+        user_message = render_user_message(dispatch["input"]["content"], dispatch["input"]["params"], spec)
+        messages = [
+            {"role": "system", "content": spec.instructions},
+            *history,
+            {"role": "user", "content": user_message},
+        ]
+        action_id = str(uuid.uuid4())
     yield row("llm_call", action_id, {"messages": messages})
 
     started = time.perf_counter()
