@@ -8,7 +8,7 @@ from shared.models import Base, ExecutionRun, ExecutionSession
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
-from manager import db
+from manager import db, internal
 from manager.api import router
 from manager.auth import ApiError
 
@@ -22,8 +22,11 @@ MANAGER_TABLES = [ExecutionSession.__table__, ExecutionRun.__table__]
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(db.engine, tables=MANAGER_TABLES)
-    log.info("manager started")
+    server = await internal.start()
+    log.info("manager started (internal port %s)", internal.port)
     yield
+    server.close()
+    await server.wait_closed()
 
 
 app = FastAPI(lifespan=lifespan)
