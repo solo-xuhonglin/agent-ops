@@ -39,6 +39,8 @@ async def subscribe_events(
     from_seq: int = 0,
     agent: AgentDefinition = Depends(require_agent),
 ) -> StreamingResponse:
+    runs.assert_session(agent, session_id)
+    runs.validate_cursor(session_id, from_run)
     return StreamingResponse(
         streaming.stream(session_id, from_run, from_seq),
         media_type="text/event-stream",

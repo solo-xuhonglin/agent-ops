@@ -290,3 +290,69 @@ def test_disconnect_unsubscribes(base_url, auth_headers):
     time.sleep(0.3)
 
     assert internal.subscribers.get(session_id) in (None, set())
+
+
+def test_sse_rejects_foreign_session(base_url, auth_headers, db_engine):
+    from uuid import uuid4
+
+    from shared.models import ExecutionSession
+    from sqlalchemy.orm import Session
+
+    key = auth_headers["Authorization"].removeprefix("Bearer ")
+    with Session(db_engine) as session, session.begin():
+        foreign = ExecutionSession(agent_id=uuid4())
+        session.add(foreign)
+        session.flush()
+        foreign_id = foreign.id
+
+    stream = Sse(base_url, f"/v1/sessions/{foreign_id}/events", key)
+    assert stream.status == 404
+    stream.close()
+
+
+def test_unknown_from_run_rejected(base_url, auth_headers):
+    from uuid import uuid4
+
+    key = auth_headers["Authorization"].removeprefix("Bearer ")
+    session_id = api_call(base_url, "POST", "/v1/sessions", key)["session_id"]
+
+    stream = Sse(base_url, f"/v1/sessions/{session_id}/events?from_run={uuid4()}", key)
+    assert stream.status == 422
+    stream.close()
+
+
+def test_state_returns_to_idle_after_terminal(base_url, auth_headers, db_engine):
+    key = auth_headers["Authorization"].removeprefix("Bearer ")
+    worker = FakeWorker("w-idle")
+    try:
+        session_id, run_id, epoch = dispatch_run(base_url, key, worker)
+        link = RunLink(db_engine, run_id, epoch)
+        try:
+            link.event("run_started", 1, {"content": "hi", "session_id": session_id})
+            link.event("run_finished", 2, {"status": "succeeded", "result": "x"})
+            time.sleep(0.3)
+
+            stream = Sse(base_url, f"/v1/sessions/{session_id}/events", key)
+            try:
+                frames = stream.frames(3)
+            finally:
+                stream.close()
+
+            assert frames[0][1]["data"]["run"] is None
+        finally:
+            link.close()
+    finally:
+        worker.close()
+
+
+def test_full_queue_drops_subscriber():
+    import asyncio as aio
+
+    queue = aio.Queue(maxsize=1)
+    queue.put_nowait({"type": "state", "data": {}})
+    internal.subscribe("sess-full", queue)
+
+    internal._forward("sess-full", {"type": "run_started", "data": {"seq": 5}})
+
+    assert queue.qsize() == 1
+    assert "sess-full" not in internal.subscribers

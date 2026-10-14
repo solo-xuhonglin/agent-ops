@@ -140,6 +140,30 @@ def is_active(session: Session, run_id: UUID) -> bool:
     return tail is None or tail.type not in TERMINAL_TYPES
 
 
+def assert_session(agent: AgentDefinition, session_id: UUID) -> None:
+    with Session(db.engine) as session:
+        found = session.scalar(
+            select(ExecutionSession.id).where(
+                ExecutionSession.id == session_id, ExecutionSession.agent_id == agent.id
+            )
+        )
+    if found is None:
+        raise ApiError(404, "not_found", "no such session")
+
+
+def validate_cursor(session_id: UUID, from_run: UUID | None) -> None:
+    """A cursor outside the session errors out — never silently skip ahead
+    and leave the client believing the stream is continuous (docs/05 §4.4)."""
+    if from_run is None:
+        return
+    with Session(db.engine) as session:
+        found = session.scalar(
+            select(ExecutionRun.id).where(ExecutionRun.session_id == session_id, ExecutionRun.id == from_run)
+        )
+    if found is None:
+        raise ApiError(422, "contract", "the cursor's run is outside this session")
+
+
 def replay_events(session_id: str, from_run: UUID | None, from_seq: int) -> list[dict]:
     """Persistent events to catch a subscriber up, in order.
 
@@ -161,11 +185,9 @@ def replay_events(session_id: str, from_run: UUID | None, from_seq: int) -> list
         marker = str(from_run)
         index = next((i for i, value in enumerate(run_ids) if value == marker), None)
         if index is None:
-            selected = run_ids[-1:]
-            floor = {}
-        else:
-            selected = run_ids[index:]
-            floor = {marker: from_seq}
+            raise ApiError(422, "contract", "the cursor's run is outside this session")
+        selected = run_ids[index:]
+        floor = {marker: from_seq}
 
     events = []
     for run_id in selected:

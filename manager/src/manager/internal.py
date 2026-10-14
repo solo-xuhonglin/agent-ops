@@ -25,7 +25,13 @@ run_session: dict[str, str] = {}
 # Live side: subscriber queues per session, and the session state projected
 # from forwarded events (a re-statement, never a second source — docs/06 §4).
 subscribers: dict[str, set[asyncio.Queue]] = {}
-session_runs: dict[str, dict] = {}
+session_runs: dict[str, dict | None] = {}
+
+# A subscriber that falls this far behind is dropped; it reconnects with
+# its cursor and the log replays it (at-least-once stands).
+SUBSCRIBER_QUEUE_LIMIT = 256
+
+_TERMINAL_EVENTS = {EventType.run_finished.value, EventType.run_failed.value}
 port: int = 0
 
 _EVENT_NAMES = {member.value for member in EventType}
@@ -163,8 +169,17 @@ def unsubscribe(session_id: str, queue: asyncio.Queue) -> None:
 
 
 def _forward(session_id: str, payload: dict) -> None:
-    for queue in subscribers.get(session_id, ()):
-        queue.put_nowait(payload)
+    queues = subscribers.get(session_id)
+    if not queues:
+        return
+    for queue in list(queues):
+        try:
+            queue.put_nowait(payload)
+        except asyncio.QueueFull:
+            log.error("subscriber too slow; dropping it until it reconnects with a cursor")
+            queues.discard(queue)
+            if not queues:
+                subscribers.pop(session_id, None)
 
 
 async def _handle_connection(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -187,7 +202,10 @@ async def _handle_connection(reader: asyncio.StreamReader, writer: asyncio.Strea
                 if session_id is None:
                     log.error("event for undispatched run %r; dropping", data.get("run_id"))
                 else:
-                    session_runs[session_id] = {"run_id": data["run_id"], "seq": data.get("seq")}
+                    if type_ in _TERMINAL_EVENTS:
+                        session_runs[session_id] = None
+                    else:
+                        session_runs[session_id] = {"run_id": data["run_id"], "seq": data.get("seq")}
                     _forward(session_id, {"type": type_, "data": data})
             else:
                 # One deployment upgrades together: an unknown name on the

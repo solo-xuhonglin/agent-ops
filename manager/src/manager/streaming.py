@@ -27,7 +27,7 @@ async def stream(session_id: UUID, from_run: UUID | None, from_seq: int) -> Asyn
     arrive twice — clients dedup by (run_id, seq) per the contract.
     """
     sid = str(session_id)
-    queue: asyncio.Queue = asyncio.Queue()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=internal.SUBSCRIBER_QUEUE_LIMIT)
     internal.subscribe(sid, queue)
     interval = float(os.environ.get("STATE_INTERVAL", "10"))
     try:
@@ -39,6 +39,8 @@ async def stream(session_id: UUID, from_run: UUID | None, from_seq: int) -> Asyn
                 item = await asyncio.wait_for(queue.get(), timeout=interval)
                 yield _frame(item, f"{item['data']['run_id']}:{item['data']['seq']}")
             except TimeoutError:
+                if queue not in internal.subscribers.get(sid, set()):
+                    break
                 yield state_frame(sid)
     finally:
         internal.unsubscribe(sid, queue)
