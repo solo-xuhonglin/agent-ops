@@ -1,15 +1,9 @@
 """The conversational pattern (docs/02 §5.1): submit, stream, talk again.
 
-Run from anywhere: AGENT_OPS_KEY is required, AGENT_OPS_BASE_URL defaults
-to the local edge. The sys.path insert is repo-local; installed callers
-import zszc.agentops directly.
+AGENT_OPS_KEY is required, AGENT_OPS_BASE_URL defaults to the local edge.
 """
 
 import os
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "sdk" / "python" / "src"))
 
 from zszc.agentops import create_client
 

@@ -1,0 +1,8 @@
+{
+  "name": "@zszc/agentops-demo",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@zszc/agentops": "file:../../sdk/typescript"
+  }
+}

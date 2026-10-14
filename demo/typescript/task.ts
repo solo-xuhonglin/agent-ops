@@ -1,9 +1,7 @@
 // The task pattern (docs/02 §5.2): one session per job, idempotent submit,
 // and the result fetched later from the id alone.
-// Run from anywhere: AGENT_OPS_KEY is required, AGENT_OPS_BASE_URL defaults
-// to the local edge. The relative import is repo-local; installed callers
-// import @zszc/agentops.
-import { createClient } from "../../sdk/typescript/src/index.ts";
+// AGENT_OPS_KEY is required, AGENT_OPS_BASE_URL defaults to the local edge.
+import { createClient } from "@zszc/agentops";
 
 const baseUrl = process.env.AGENT_OPS_BASE_URL ?? "http://127.0.0.1:8080";
 const key = process.env.AGENT_OPS_KEY;
