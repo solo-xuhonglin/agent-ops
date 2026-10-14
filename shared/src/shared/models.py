@@ -37,6 +37,7 @@ class ReleaseArtifact(Base):
     target_kind: Mapped[str] = mapped_column(String(32))
     target_id: Mapped[uuid.UUID] = mapped_column(Uuid)
     version: Mapped[int]
+    # The published config as a structured dict; AgentSpec.model_validate reads it back.
     snapshot: Mapped[dict] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

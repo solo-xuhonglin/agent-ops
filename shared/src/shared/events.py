@@ -2,11 +2,12 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # The action types pair through action_id; docs/05 §2. A _call without its
 # _result is the sole "this step never finished" signal.
 _ACTION_PAIRS = {"llm_call": "llm_result", "tool_call": "tool_result", "agent_call": "agent_result"}
+_ACTION_TYPES = set(_ACTION_PAIRS) | set(_ACTION_PAIRS.values())
 
 
 class EventType(StrEnum):
@@ -46,6 +47,12 @@ class LogEntry(BaseModel):
     action_id: str | None
     type: EventType
     payload: dict
+
+    @model_validator(mode="after")
+    def action_types_carry_action_id(self):
+        if self.type.value in _ACTION_TYPES and self.action_id is None:
+            raise ValueError(f"{self.type.value} must carry an action_id")
+        return self
 
 
 def open_actions(entries: list[LogEntry]) -> set[str]:

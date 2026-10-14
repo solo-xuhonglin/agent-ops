@@ -36,7 +36,7 @@ def test_snapshot_round_trips_through_db():
     with Session(db.engine) as session:
         artifact = session.scalar(select(ReleaseArtifact))
 
-    assert AgentSpec.from_snapshot_json(artifact.snapshot["json"]) == SEED_SPEC
+    assert AgentSpec.model_validate(artifact.snapshot) == SEED_SPEC
 
 
 def test_key_hash_is_sha256():

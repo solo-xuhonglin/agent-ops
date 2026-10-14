@@ -55,3 +55,12 @@ def test_non_action_types_ignored():
 def test_log_entry_rejects_unknown_type():
     with pytest.raises(ValidationError):
         LogEntry(run_id=uuid.uuid4(), seq=1, action_id=None, type="message_delta", payload={})
+
+
+def test_action_types_require_action_id():
+    with pytest.raises(ValidationError):
+        entry(EventType.tool_call, None)
+    with pytest.raises(ValidationError):
+        entry(EventType.llm_result, None)
+
+    assert entry(EventType.run_started, None).action_id is None

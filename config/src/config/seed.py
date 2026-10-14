@@ -66,7 +66,7 @@ def seed(engine, key: str) -> SeedResult:
                     target_kind="agent",
                     target_id=agent.id,
                     version=1,
-                    snapshot={"json": SEED_SPEC.to_snapshot_json()},
+                    snapshot=SEED_SPEC.model_dump(),
                 )
             )
 
