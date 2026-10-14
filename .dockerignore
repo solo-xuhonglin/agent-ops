@@ -1,0 +1,18 @@
+# Only shared/ and the building service's sources reach the image.
+.git
+.venv
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.superpowers
+docs
+deploy
+web
+sandbox
+sdk
+manager
+config/tests
+worker/tests
+shared/tests
+*.md

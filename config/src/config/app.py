@@ -3,19 +3,22 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from shared.models import AgentDefinition, Base, ReleaseArtifact, Tenant
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
-from . import db
-from .models import Base
+from config import db
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
+# The tables config is the sole writer of (docs/03 §4.7).
+CONFIG_TABLES = [Tenant.__table__, AgentDefinition.__table__, ReleaseArtifact.__table__]
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    Base.metadata.create_all(db.engine)
+    Base.metadata.create_all(db.engine, tables=CONFIG_TABLES)
     log.info("config started")
     yield
 

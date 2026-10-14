@@ -6,7 +6,9 @@ services:
     restart: unless-stopped
 
   config:
-    build: ../config
+    build:
+      context: ..
+      dockerfile: config/Dockerfile
     restart: unless-stopped
     depends_on:
       # Startup runs create_all, so the database must be ready first.
@@ -17,8 +19,15 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-agentops}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-agentops}
 
   worker:
-    build: ../worker
+    build:
+      context: ..
+      dockerfile: worker/Dockerfile
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-agentops}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-agentops}
 
   postgres:
     image: postgres:17

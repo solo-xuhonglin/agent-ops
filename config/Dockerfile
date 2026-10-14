@@ -1,11 +1,13 @@
+# Built from the repo root: shared/ rides along with the service sources.
 FROM python:3.13-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY config/requirements.txt config/requirements.txt
+RUN pip install --no-cache-dir -r config/requirements.txt
 
-ENV PYTHONPATH=/app/src
-COPY src/ src/
+ENV PYTHONPATH=/app/shared/src:/app/config/src
+COPY shared/ shared/
+COPY config/src/ config/src/
 
 CMD ["python", "-m", "config"]

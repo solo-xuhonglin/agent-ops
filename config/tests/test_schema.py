@@ -1,12 +1,18 @@
 import uuid
 
 import pytest
-from config.models import Tenant
-from sqlalchemy import select
+from shared.models import Tenant
+from sqlalchemy import inspect, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from config import db
+
+
+def test_config_creates_only_its_tables(schema):
+    names = set(inspect(db.engine).get_table_names())
+
+    assert names == {"iam_tenants", "agent_definitions", "release_artifacts"}
 
 
 def test_tenant_round_trip():

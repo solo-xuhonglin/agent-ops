@@ -8,5 +8,5 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.pytest.ini_options]
-testpaths = ["config/tests", "shared/tests"]
-pythonpath = ["config/src", "shared/src"]
+testpaths = ["config/tests", "shared/tests", "worker/tests"]
+pythonpath = ["config/src", "shared/src", "worker/src"]
