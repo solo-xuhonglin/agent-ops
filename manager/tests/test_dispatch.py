@@ -1,35 +1,10 @@
 import time
 from uuid import UUID
 
-import pytest
-from manager.runs import is_active
-from shared.models import ExecutionRun, RunLog
-from sqlalchemy import func, select
+from shared.models import ExecutionRun
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from util import FakeWorker, submit, write_log
-
-from manager import internal
-
-
-@pytest.fixture(autouse=True)
-def quiet_link(db_engine):
-    # Finish every non-terminal run after each test so later submits never
-    # re-dispatch leftovers, and forget dispatch bookkeeping.
-    yield
-    with Session(db_engine) as session, session.begin():
-        for run in session.scalars(select(ExecutionRun)).all():
-            if is_active(session, run.id):
-                last_seq = session.scalar(select(func.max(RunLog.seq)).where(RunLog.run_id == run.id)) or 0
-                session.add(
-                    RunLog(
-                        run_id=run.id,
-                        seq=last_seq + 1,
-                        action_id=None,
-                        type="run_finished",
-                        payload={"status": "cancelled"},
-                    )
-                )
-    internal.dispatched_at.clear()
 
 
 def test_dispatch_after_submit(client, auth_headers, db_engine):

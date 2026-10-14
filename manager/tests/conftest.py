@@ -11,8 +11,11 @@ from config.app import CONFIG_TABLES
 from config.seed import seed
 from fastapi.testclient import TestClient
 from manager.app import MANAGER_TABLES, app
-from shared.models import Base, RunLog
-from sqlalchemy import create_engine
+from shared.models import Base, ExecutionRun, RunLog
+from sqlalchemy import create_engine, func, select
+from sqlalchemy.orm import Session
+
+from manager import internal
 
 TEST_KEY = "manager-test-key"
 engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)
@@ -40,3 +43,26 @@ def auth_headers():
 @pytest.fixture(scope="session")
 def db_engine():
     return engine
+
+
+@pytest.fixture(autouse=True)
+def quiet_link(db_engine):
+    # Finish every non-terminal run after each test so later passes never
+    # re-dispatch leftovers, and forget dispatch bookkeeping.
+    from manager.runs import is_active
+
+    yield
+    with Session(db_engine) as session, session.begin():
+        for run in session.scalars(select(ExecutionRun)).all():
+            if is_active(session, run.id):
+                last_seq = session.scalar(select(func.max(RunLog.seq)).where(RunLog.run_id == run.id)) or 0
+                session.add(
+                    RunLog(
+                        run_id=run.id,
+                        seq=last_seq + 1,
+                        action_id=None,
+                        type="run_finished",
+                        payload={"status": "cancelled"},
+                    )
+                )
+    internal.dispatched_at.clear()
