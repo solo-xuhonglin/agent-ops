@@ -29,3 +29,8 @@ def client():
 @pytest.fixture(scope="session")
 def auth_headers():
     return {"Authorization": f"Bearer {TEST_KEY}"}
+
+
+@pytest.fixture(scope="session")
+def db_engine():
+    return engine
