@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from agentops import NotFoundError, create_client
+from zszc.agentops import NotFoundError, create_client
 
 SESSION_ID = "11111111-1111-1111-1111-111111111111"
 RUN_ID = "33333333-3333-3333-3333-333333333333"

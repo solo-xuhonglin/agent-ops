@@ -2,10 +2,10 @@ import socket
 import threading
 
 import pytest
-from agentops import create_client
 from shared.wire import encode
 from util import TEST_KEY, FakeWorker, live_server
 from worker.executor import execute
+from zszc.agentops import create_client
 
 from manager import internal
 

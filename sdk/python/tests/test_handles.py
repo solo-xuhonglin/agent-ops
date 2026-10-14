@@ -1,5 +1,5 @@
 import pytest
-from agentops import ConflictError, create_client
+from zszc.agentops import ConflictError, create_client
 
 SESSION_ID = "11111111-1111-1111-1111-111111111111"
 RUN_ID = "22222222-2222-2222-2222-222222222222"

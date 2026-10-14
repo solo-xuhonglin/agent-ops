@@ -5,8 +5,8 @@ from typing import Any, Self
 
 import httpx
 
-from agentops.errors import RunCancelled, RunFailed, Timeout
-from agentops.http import Http
+from zszc.agentops.errors import RunCancelled, RunFailed, Timeout
+from zszc.agentops.http import Http
 
 
 @dataclass

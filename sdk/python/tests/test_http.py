@@ -3,8 +3,8 @@ import threading
 import time
 
 import pytest
-from agentops import AgentOpsError, AuthError, ConflictError, ContractError, HttpError, NotFoundError, Timeout
-from agentops.http import Http
+from zszc.agentops import AgentOpsError, AuthError, ConflictError, ContractError, HttpError, NotFoundError, Timeout
+from zszc.agentops.http import Http
 
 
 def test_json_returns_body_and_sends_bearer_key(fake):

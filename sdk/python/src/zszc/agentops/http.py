@@ -4,7 +4,7 @@ from typing import Self
 
 import httpx
 
-from agentops.errors import Timeout, from_response
+from zszc.agentops.errors import Timeout, from_response
 
 
 def _error_envelope(response: httpx.Response) -> dict:

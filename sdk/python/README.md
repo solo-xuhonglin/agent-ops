@@ -1,9 +1,9 @@
 # agent-ops Python SDK
 
-后端调用方的同步客户端，包名 `agentops`。
+后端调用方的同步客户端，包名 `zszc.agentops`。
 
 ```python
-from agentops import create_client
+from zszc.agentops import create_client
 
 with create_client(key, base_url="http://127.0.0.1:8080") as client:
     agent = client.get_agent()  # 输入声明

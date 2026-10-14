@@ -1,6 +1,6 @@
 import pytest
-from agentops import RunCancelled, RunFailed, Timeout, create_client
-from agentops.client import Run
+from zszc.agentops import RunCancelled, RunFailed, Timeout, create_client
+from zszc.agentops.client import Run
 
 SESSION_ID = "11111111-1111-1111-1111-111111111111"
 RUN_ID = "44444444-4444-4444-4444-444444444444"

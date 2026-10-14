@@ -1,5 +1,5 @@
-from agentops.client import Agent, Client, Event, InputParam, Result, Run, Session, create_client
-from agentops.errors import (
+from zszc.agentops.client import Agent, Client, Event, InputParam, Result, Run, Session, create_client
+from zszc.agentops.errors import (
     AgentOpsError,
     AuthError,
     ConflictError,

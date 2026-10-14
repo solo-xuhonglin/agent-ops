@@ -1,9 +1,9 @@
 # agent-ops TypeScript SDK
 
-前端与 Node 调用方的客户端，包名 `@agent-ops/sdk`，无框架绑定、无 UI。
+前端与 Node 调用方的客户端，包名 `@zszc/agentops`，无框架绑定、无 UI。
 
 ```ts
-import { createClient } from "@agent-ops/sdk";
+import { createClient } from "@zszc/agentops";
 
 const client = createClient(key, { baseUrl: "http://127.0.0.1:8080" });
 const agent = await client.getAgent();              // 输入声明
