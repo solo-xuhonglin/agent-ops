@@ -52,3 +52,31 @@ class RunLog(Base):
     type: Mapped[str] = mapped_column(String(32))
     payload: Mapped[dict] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ExecutionSession(Base):
+    __tablename__ = "execution_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    agent_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    caller: Mapped[str] = mapped_column(default="backend")
+    active_run_id: Mapped[uuid.UUID | None]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ExecutionRun(Base):
+    __tablename__ = "execution_runs"
+    __table_args__ = (UniqueConstraint("agent_id", "request_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    agent_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    artifact_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    request_id: Mapped[str | None]
+    content: Mapped[str] = mapped_column(String)
+    params: Mapped[dict] = mapped_column(JSONB)
+    output_schema: Mapped[dict | None] = mapped_column(JSONB)
+    cancel_requested: Mapped[bool] = mapped_column(default=False)
+    # Bumped by every dispatch; the fence against a stale worker writing the log.
+    epoch: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

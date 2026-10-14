@@ -1,0 +1,218 @@
+openapi: 3.1.0
+info:
+  title: Agent Ops API
+  version: 1.0.0
+  description: >
+    The only external surface of the platform. It knows four things: a key,
+    an input, a session, and an output shape. Orchestration, versions, tools,
+    skills, and credentials never appear here (docs/02).
+
+security:
+  - bearerAuth: []
+
+paths:
+  /v1/agent:
+    get:
+      operationId: getAgent
+      summary: The agent's input declaration
+      responses:
+        "200":
+          description: The declaration callers must satisfy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentView"
+        "401":
+          $ref: "#/components/responses/Error"
+
+  /v1/sessions:
+    post:
+      operationId: newSession
+      summary: Open a new session
+      responses:
+        "201":
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionView"
+        "401":
+          $ref: "#/components/responses/Error"
+
+  /v1/sessions/{session_id}/runs:
+    post:
+      operationId: submitRun
+      summary: Submit a run into the session
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunSubmit"
+      responses:
+        "201":
+          description: Run created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunView"
+        "200":
+          description: Idempotent replay returned the existing run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunView"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /v1/runs/{run_id}:
+    get:
+      operationId: getRun
+      summary: Fetch a run; status is derived from the run log tail
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunView"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/runs/{run_id}/cancel:
+    post:
+      operationId: cancelRun
+      summary: Request cancellation; returns immediately, terminal state lands later
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Cancellation requested (or already requested)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunView"
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    AgentView:
+      type: object
+      required: [input]
+      properties:
+        input:
+          type: array
+          items:
+            $ref: "#/components/schemas/InputParam"
+
+    InputParam:
+      type: object
+      required: [key, type, required, description]
+      properties:
+        key:
+          type: string
+        type:
+          type: string
+          enum: [string, number, boolean]
+        required:
+          type: boolean
+        description:
+          type: string
+        default: {}
+
+    SessionView:
+      type: object
+      required: [session_id]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+
+    RunSubmit:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+        params:
+          type: object
+          default: {}
+        output_schema:
+          type: [object, "null"]
+        request_id:
+          type: [string, "null"]
+
+    RunView:
+      type: object
+      required: [run_id, session_id, status, cancel_requested]
+      properties:
+        run_id:
+          type: string
+          format: uuid
+        session_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, running, succeeded, failed, cancelled]
+        result: {}
+        error:
+          type: [string, "null"]
+        cancel_requested:
+          type: boolean
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
