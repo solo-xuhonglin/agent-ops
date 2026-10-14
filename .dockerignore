@@ -11,8 +11,8 @@ deploy
 web
 sandbox
 sdk
-manager
 config/tests
 worker/tests
+manager/tests
 shared/tests
 *.md
