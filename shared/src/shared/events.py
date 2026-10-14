@@ -57,6 +57,25 @@ class LogEntry(BaseModel):
         return self
 
 
+# Stream-only event names: they ride the wire and SSE but are never a log
+# type, never seq'd (docs/05 §3.3).
+STREAM_EVENT_TYPES = ("message_started", "message_delta")
+
+# Per-type payload fields that must not leave the platform (docs/05 §3.1):
+# llm_call's messages carry the System Prompt; the external event keeps the
+# action reference only.
+_PRIVATE_FIELDS = {"llm_call": {"messages"}}
+
+
+def public_event(entry: dict) -> dict:
+    """Project a full log entry to the external event shape."""
+    private = _PRIVATE_FIELDS.get(entry["type"], set())
+    if not private:
+        return entry
+    data = {key: value for key, value in entry["data"].items() if key not in private}
+    return {"type": entry["type"], "data": data}
+
+
 def open_actions(entries: list[LogEntry]) -> set[str]:
     open_ids: set[str] = set()
     for item in entries:
