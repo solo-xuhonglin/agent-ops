@@ -30,7 +30,10 @@ async def _run_one(dispatch: dict) -> None:
             encode("state", {"worker_id": worker_id, "run_id": dispatch["run_id"], "epoch": dispatch["epoch"]})
         )
         await writer.drain()
-        await asyncio.to_thread(execute, db.engine, dispatch)
+        # Rows land first, then the entries ride the wire (docs/06 §2.3).
+        for entry in await asyncio.to_thread(execute, db.engine, dispatch):
+            writer.write(encode(entry["type"], entry["data"]))
+            await writer.drain()
     finally:
         writer.close()
         await writer.wait_closed()

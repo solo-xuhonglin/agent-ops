@@ -96,3 +96,23 @@ def test_epoch_fence(schema):
     execute(schema, dispatch)
 
     assert entries(schema, dispatch["run_id"]) == []
+
+
+def test_execute_returns_entries(schema):
+    dispatch = make_run(schema)
+
+    entries = execute(schema, dispatch)
+
+    assert [entry["type"] for entry in entries] == ["run_started", "run_finished"]
+    assert entries[0]["data"]["seq"] == 1
+    assert entries[0]["data"]["run_id"] == dispatch["run_id"]
+    assert entries[0]["data"]["content"] == "hello"
+    assert entries[1]["data"]["seq"] == 2
+    assert entries[1]["data"]["status"] == "succeeded"
+
+
+def test_execute_returns_only_new_entries(schema):
+    dispatch = make_run(schema)
+
+    execute(schema, dispatch)
+    assert execute(schema, dispatch) == []
