@@ -20,22 +20,7 @@ def db_engine():
     Base.metadata.drop_all(engine, tables=[ExecutionRun.__table__, ExecutionSession.__table__])
 
 
-SPEC = AgentSpec(
-    mode="react",
-    name="demo",
-    instructions="你是一个项目分析助手",
-    input=[
-        InputParam(
-            key="project_id", type="string", required=True, description="项目 ID，来自项目管理系统，形如 PRJ-1042"
-        ),
-        InputParam(
-            key="include_archived", type="boolean", required=False, description="是否包含已归档项目", default=False
-        ),
-    ],
-    model_id="fake",
-    model_params={},
-    max_iterations=8,
-)
+from helpers import SPEC
 
 
 def test_render_matches_the_contract_example():
