@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from shared.models import AgentDefinition, ExecutionSession
 from sqlalchemy.orm import Session
 
-from manager import db, runs
+from manager import db, internal, runs
 from manager.auth import require_agent
 from manager.runs import RunSubmitBody, RunView
 
@@ -35,6 +35,7 @@ def new_session(agent: AgentDefinition = Depends(require_agent)) -> SessionView:
 @router.post("/sessions/{session_id}/runs")
 def submit_run(session_id: UUID, body: RunSubmitBody, agent: AgentDefinition = Depends(require_agent)):
     view, status_code = runs.submit(agent, session_id, body)
+    internal.request_dispatch()
     return JSONResponse(content=view.model_dump(mode="json"), status_code=status_code)
 
 
@@ -45,4 +46,6 @@ def get_run(run_id: UUID, agent: AgentDefinition = Depends(require_agent)) -> Ru
 
 @router.post("/runs/{run_id}/cancel")
 def cancel_run(run_id: UUID, agent: AgentDefinition = Depends(require_agent)) -> RunView:
-    return runs.request_cancel(agent, run_id)
+    view = runs.request_cancel(agent, run_id)
+    internal.broadcast("cancel", {"run_id": str(run_id)})
+    return view

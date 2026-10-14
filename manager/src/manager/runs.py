@@ -29,7 +29,7 @@ class RunView(BaseModel):
     cancel_requested: bool
 
 
-_TERMINAL_TYPES = {EventType.run_finished, EventType.run_failed}
+TERMINAL_TYPES = {EventType.run_finished, EventType.run_failed}
 
 # bool is an int in Python, so number excludes it explicitly.
 _TYPE_CHECKS = {
@@ -89,7 +89,7 @@ def submit(agent: AgentDefinition, session_id: UUID, body: RunSubmitBody) -> tup
                 if existing is not None:
                     return build_view(existing), 200
 
-            if row.active_run_id is not None and _is_active(session, row.active_run_id):
+            if row.active_run_id is not None and is_active(session, row.active_run_id):
                 raise ApiError(409, "conflict", "the session already has an active run")
 
             run = ExecutionRun(
@@ -135,9 +135,9 @@ def request_cancel(agent: AgentDefinition, run_id: UUID) -> RunView:
         return build_view(run)
 
 
-def _is_active(session: Session, run_id: UUID) -> bool:
+def is_active(session: Session, run_id: UUID) -> bool:
     tail = session.scalar(select(RunLog).where(RunLog.run_id == run_id).order_by(RunLog.seq.desc()).limit(1))
-    return tail is None or tail.type not in _TERMINAL_TYPES
+    return tail is None or tail.type not in TERMINAL_TYPES
 
 
 def build_view(run: ExecutionRun) -> RunView:

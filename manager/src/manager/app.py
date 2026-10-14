@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -23,8 +24,12 @@ MANAGER_TABLES = [ExecutionSession.__table__, ExecutionRun.__table__]
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(db.engine, tables=MANAGER_TABLES)
     server = await internal.start()
+    stop = asyncio.Event()
+    dispatcher = asyncio.create_task(internal.run_dispatcher(stop))
     log.info("manager started (internal port %s)", internal.port)
     yield
+    stop.set()
+    dispatcher.cancel()
     server.close()
     await server.wait_closed()
 

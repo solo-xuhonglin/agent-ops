@@ -1,6 +1,12 @@
 import os
 
 import pytest
+
+# Ephemeral internal port so parallel-safe manager tests never fight over 9000;
+# a long sweep cadence keeps the periodic dispatcher out of test determinism.
+os.environ.setdefault("MANAGER_INTERNAL_PORT", "0")
+os.environ.setdefault("SWEEP_INTERVAL", "60")
+
 from config.app import CONFIG_TABLES
 from config.seed import seed
 from fastapi.testclient import TestClient
