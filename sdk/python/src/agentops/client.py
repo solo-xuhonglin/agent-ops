@@ -4,6 +4,7 @@ from typing import Any, Self
 
 import httpx
 
+from agentops.errors import RunCancelled, RunFailed, Timeout
 from agentops.http import Http
 
 
@@ -31,6 +32,11 @@ class Event:
     data: dict
 
 
+@dataclass
+class Result:
+    output: Any
+
+
 class Run:
     """A run handle; snapshot fields are None until a view has been seen."""
 
@@ -51,6 +57,25 @@ class Run:
 
     def cancel(self) -> None:
         self._adopt(self._client._http.json("POST", f"/v1/runs/{self.id}/cancel"))
+
+    def wait(self, *, timeout: float | None = None) -> "Result":
+        """Poll the run until terminal; polling reads the log tail, the source
+        of truth, so a run whose wire events were missed still resolves.
+
+        Timeout abandons the wait, never the run (docs/02 §6.3).
+        """
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while True:
+            self._adopt(self._client._http.json("GET", f"/v1/runs/{self.id}"))
+            if self.status == "succeeded":
+                return Result(self.result)
+            if self.status == "failed":
+                raise RunFailed(self.error or "run failed")
+            if self.status == "cancelled":
+                raise RunCancelled(f"run {self.id} was cancelled")
+            if deadline is not None and time.monotonic() >= deadline:
+                raise Timeout(f"run {self.id} still {self.status} after {timeout}s")
+            time.sleep(self._client.poll_interval)
 
 
 class Session:

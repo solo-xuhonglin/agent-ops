@@ -1,4 +1,4 @@
-from agentops.client import Agent, Client, Event, InputParam, Run, Session, create_client
+from agentops.client import Agent, Client, Event, InputParam, Result, Run, Session, create_client
 from agentops.errors import (
     AgentOpsError,
     AuthError,
@@ -24,6 +24,7 @@ __all__ = [
     "InputParam",
     "NotFoundError",
     "QuotaError",
+    "Result",
     "Run",
     "RunCancelled",
     "RunFailed",
