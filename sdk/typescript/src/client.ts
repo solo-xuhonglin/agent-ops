@@ -1,4 +1,4 @@
-import { RunCancelledError, RunFailedError, TimeoutError } from "./errors.ts";
+import { AgentOpsError, RunCancelledError, RunFailedError, TimeoutError } from "./errors.ts";
 import { Http } from "./http.ts";
 
 export interface InputParam {
@@ -100,8 +100,42 @@ export class Session {
     return this.client.run(view);
   }
 
-  async *stream(_options: { fromRun?: string; fromSeq?: number } = {}): AsyncGenerator<Event> {
-    throw new Error("not implemented");
+  /** Subscribe to the session: state pushes and persistent events.
+   *
+   * Duplicates (the subscribe-before-replay race, replays after reconnect)
+   * are suppressed by a per-run seq watermark; a dropped link reconnects
+   * with the last delivered cursor. HTTP errors raise, no retry.
+   */
+  async *stream(options: { fromRun?: string; fromSeq?: number } = {}): AsyncGenerator<Event> {
+    let cursor: [string, number] | null = options.fromRun !== undefined ? [options.fromRun, options.fromSeq ?? 0] : null;
+    const watermark = new Map<string, number>();
+    for (;;) {
+      const params: Record<string, string> = {};
+      if (cursor !== null) {
+        params.from_run = cursor[0];
+        params.from_seq = String(cursor[1]);
+      }
+      try {
+        for await (const frame of this.client.http.events(`/v1/sessions/${this.id}/events`, params)) {
+          const payload = frame.payload as { type: string; data: any };
+          if (payload.type === "state") {
+            const runId: string | null = payload.data.run ?? null;
+            this.currentRun = runId === null ? null : new Run(this.client, runId, this.id);
+            yield { type: "state", runId: null, seq: null, data: payload.data };
+            continue;
+          }
+          const { run_id: runId, seq } = payload.data;
+          if (seq <= (watermark.get(runId) ?? 0)) continue;
+          watermark.set(runId, seq);
+          cursor = [runId, seq];
+          yield { type: payload.type, runId, seq, data: payload.data };
+        }
+      } catch (error) {
+        if (error instanceof AgentOpsError) throw error;
+        // Network-level failures (fetch TypeError, mid-stream read errors) reconnect.
+      }
+      await sleep(this.client.reconnectDelayMs);
+    }
   }
 }
 
