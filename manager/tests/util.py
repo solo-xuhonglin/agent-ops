@@ -1,11 +1,54 @@
 import socket
+import threading
 import time
+from contextlib import contextmanager
 
+import uvicorn
+from manager.app import app
 from shared.models import RunLog
 from shared.wire import encode, read_frame_sync
 from sqlalchemy.orm import Session
 
 from manager import internal
+
+# Soft state a uvicorn-thread lifespan rebinds; snapshotted around live_server.
+_GLOBAL_STATE = (
+    "workers",
+    "run_conns",
+    "reported_running",
+    "dispatched_at",
+    "run_session",
+    "subscribers",
+    "session_runs",
+    "port",
+    "_loop",
+    "_wakeup",
+)
+
+
+@contextmanager
+def live_server():
+    """Run the real app on a uvicorn thread; yield its base URL.
+
+    The thread's lifespan rebinds internal's module state to its own loop;
+    the snapshot restores the earlier state (the session TestClient's) so
+    later suites see it.
+    """
+    snapshot = {name: getattr(internal, name) for name in _GLOBAL_STATE}
+    config = uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning")
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.time() + 10
+    while not server.started and time.time() < deadline:
+        time.sleep(0.05)
+    try:
+        yield f"http://127.0.0.1:{server.servers[0].sockets[0].getsockname()[1]}"
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5)
+        for name, value in snapshot.items():
+            setattr(internal, name, value)
 
 
 class FakeWorker:

@@ -1,49 +1,19 @@
 import json
 import socket
-import threading
 import time
 import urllib.request
 from urllib.parse import urlparse
 
 import pytest
-import uvicorn
-from manager.app import app
-from util import FakeWorker
+from util import FakeWorker, live_server
 
 from manager import internal
-
-_GLOBAL_STATE = (
-    "workers",
-    "run_conns",
-    "reported_running",
-    "dispatched_at",
-    "run_session",
-    "subscribers",
-    "session_runs",
-    "port",
-    "_loop",
-    "_wakeup",
-)
 
 
 @pytest.fixture(scope="module")
 def base_url():
-    # This module runs its own app lifespan on a uvicorn thread, which
-    # rebinds internal's module state to that loop; the snapshot restores
-    # the earlier state (the session TestClient's) so later suites see it.
-    snapshot = {name: getattr(internal, name) for name in _GLOBAL_STATE}
-    config = uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning")
-    server = uvicorn.Server(config)
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    deadline = time.time() + 10
-    while not server.started and time.time() < deadline:
-        time.sleep(0.05)
-    yield f"http://127.0.0.1:{server.servers[0].sockets[0].getsockname()[1]}"
-    server.should_exit = True
-    thread.join(timeout=5)
-    for name, value in snapshot.items():
-        setattr(internal, name, value)
+    with live_server() as base:
+        yield base
 
 
 def api_call(base_url: str, method: str, path: str, key: str, body: dict | None = None) -> dict:
@@ -176,7 +146,13 @@ def test_subscribe_without_cursor_from_run_start(base_url, auth_headers, db_engi
                 f"{run_id}:2",
                 {
                     "type": "run_finished",
-                    "data": {"run_id": run_id, "seq": 2, "action_id": None, "status": "succeeded", "result": "stub: hi"},
+                    "data": {
+                        "run_id": run_id,
+                        "seq": 2,
+                        "action_id": None,
+                        "status": "succeeded",
+                        "result": "stub: hi",
+                    },
                 },
             )
         finally:
@@ -229,7 +205,13 @@ def test_live_event_forwarded(base_url, auth_headers, db_engine):
                     f"{run_id}:1",
                     {
                         "type": "run_started",
-                        "data": {"run_id": run_id, "seq": 1, "action_id": None, "content": "hi", "session_id": session_id},
+                        "data": {
+                            "run_id": run_id,
+                            "seq": 1,
+                            "action_id": None,
+                            "content": "hi",
+                            "session_id": session_id,
+                        },
                     },
                 )
             finally:
