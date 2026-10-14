@@ -84,7 +84,9 @@ def submit(agent: AgentDefinition, session_id: UUID, body: RunSubmitBody) -> tup
 
             if body.request_id is not None:
                 existing = session.scalar(
-                    select(ExecutionRun).where(ExecutionRun.agent_id == agent.id, ExecutionRun.request_id == body.request_id)
+                    select(ExecutionRun).where(
+                        ExecutionRun.agent_id == agent.id, ExecutionRun.request_id == body.request_id
+                    )
                 )
                 if existing is not None:
                     return build_view(existing), 200
@@ -110,7 +112,9 @@ def submit(agent: AgentDefinition, session_id: UUID, body: RunSubmitBody) -> tup
         # (agent, request_id) already inserted the run — replay it.
         with Session(db.engine) as session:
             existing = session.scalar(
-                select(ExecutionRun).where(ExecutionRun.agent_id == agent.id, ExecutionRun.request_id == body.request_id)
+                select(ExecutionRun).where(
+                    ExecutionRun.agent_id == agent.id, ExecutionRun.request_id == body.request_id
+                )
             )
         if existing is not None:
             return build_view(existing), 200
@@ -143,9 +147,7 @@ def is_active(session: Session, run_id: UUID) -> bool:
 def assert_session(agent: AgentDefinition, session_id: UUID) -> None:
     with Session(db.engine) as session:
         found = session.scalar(
-            select(ExecutionSession.id).where(
-                ExecutionSession.id == session_id, ExecutionSession.agent_id == agent.id
-            )
+            select(ExecutionSession.id).where(ExecutionSession.id == session_id, ExecutionSession.agent_id == agent.id)
         )
     if found is None:
         raise ApiError(404, "not_found", "no such session")
@@ -197,7 +199,10 @@ def replay_events(session_id: str, from_run: UUID | None, from_seq: int) -> list
             if row.seq <= floor.get(run_id, 0):
                 continue
             events.append(
-                {"type": row.type, "data": {"run_id": run_id, "seq": row.seq, "action_id": row.action_id, **row.payload}}
+                {
+                    "type": row.type,
+                    "data": {"run_id": run_id, "seq": row.seq, "action_id": row.action_id, **row.payload},
+                }
             )
     return events
 

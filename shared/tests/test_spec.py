@@ -29,10 +29,12 @@ def test_input_param_validation():
     with pytest.raises(ValidationError):
         InputParam(key="project_id", type="string", required=True, description="")
     with pytest.raises(ValidationError):
-        make_spec(input=[
-            InputParam(key="project_id", type="string", required=True, description="a"),
-            InputParam(key="project_id", type="string", description="b"),
-        ])
+        make_spec(
+            input=[
+                InputParam(key="project_id", type="string", required=True, description="a"),
+                InputParam(key="project_id", type="string", description="b"),
+            ]
+        )
     with pytest.raises(ValidationError):
         InputParam(key="project_id", type="array", required=True, description="c")
 

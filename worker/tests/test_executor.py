@@ -39,7 +39,13 @@ def make_run(engine, cancel_requested=False, epoch=1):
         )
         sess.add(run)
         sess.flush()
-        return {"run_id": str(run.id), "epoch": epoch, "session_id": str(session.id), "snapshot": {}, "input": {"content": "hello", "params": {"project_id": "P"}, "output_schema": None, "caller": "backend"}}
+        return {
+            "run_id": str(run.id),
+            "epoch": epoch,
+            "session_id": str(session.id),
+            "snapshot": {},
+            "input": {"content": "hello", "params": {"project_id": "P"}, "output_schema": None, "caller": "backend"},
+        }
 
 
 def entries(engine, run_id):

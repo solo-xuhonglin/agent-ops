@@ -18,7 +18,9 @@ def test_seed_idempotent():
     with Session(db.engine) as session:
         agent_id = session.scalar(select(AgentDefinition.id).where(AgentDefinition.name == SEED_SPEC.name))
         tenants = session.scalar(select(func.count()).select_from(Tenant).where(Tenant.name == TENANT_NAME))
-        agents = session.scalar(select(func.count()).select_from(AgentDefinition).where(AgentDefinition.name == SEED_SPEC.name))
+        agents = session.scalar(
+            select(func.count()).select_from(AgentDefinition).where(AgentDefinition.name == SEED_SPEC.name)
+        )
         artifacts = session.scalar(
             select(func.count())
             .select_from(ReleaseArtifact)

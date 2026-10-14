@@ -28,9 +28,7 @@ def test_submit_creates_pending_run(client, auth_headers, db_engine):
     assert body["status"] == "pending"
     assert body["cancel_requested"] is False
     with Session(db_engine) as session:
-        stored = session.scalar(
-            select(ExecutionSession).where(ExecutionSession.id == session_id)
-        )
+        stored = session.scalar(select(ExecutionSession).where(ExecutionSession.id == session_id))
     assert stored.active_run_id is not None
 
 
@@ -140,7 +138,9 @@ def test_status_terminal_branches(client, auth_headers, db_engine):
     failed = client.get(f"/v1/runs/{failed_run}", headers=auth_headers).json()
 
     other_session = new_session(client, auth_headers)
-    cancelled_run = submit(client, auth_headers, other_session, content="a", params={"project_id": "P"}).json()["run_id"]
+    cancelled_run = submit(client, auth_headers, other_session, content="a", params={"project_id": "P"}).json()[
+        "run_id"
+    ]
     write_log(db_engine, cancelled_run, 1, "run_started", {})
     write_log(db_engine, cancelled_run, 2, "run_finished", {"status": "cancelled"})
     cancelled = client.get(f"/v1/runs/{cancelled_run}", headers=auth_headers).json()

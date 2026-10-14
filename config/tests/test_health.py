@@ -12,7 +12,9 @@ def test_health_reports_db():
 
 
 def test_health_503_when_db_down(monkeypatch):
-    dead = create_engine("postgresql+psycopg://agentops:x@127.0.0.1:1/agentops_test", connect_args={"connect_timeout": 1})
+    dead = create_engine(
+        "postgresql+psycopg://agentops:x@127.0.0.1:1/agentops_test", connect_args={"connect_timeout": 1}
+    )
 
     with TestClient(config.app.app) as client:
         monkeypatch.setattr(config.app.db, "engine", dead)
