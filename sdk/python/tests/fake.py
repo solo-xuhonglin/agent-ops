@@ -19,9 +19,20 @@ class FakeApi:
         """Register one route; `handler(request) -> (status, body)` overrides static body."""
         self.routes[(method, path)] = {"status": status, "body": body, "handler": handler, "raw": None}
 
-    def route_raw(self, path: str, script: list[tuple[float, bytes]], hold: float = 5.0):
-        """Serve GET as text/event-stream, writing `(delay, chunk)` pairs then holding."""
-        self.routes[("GET", path)] = {"status": 200, "body": None, "handler": None, "raw": script, "hold": hold}
+    def route_raw(self, path: str, scripts: list[list[tuple[float, bytes]]], hold: float = 5.0, drop: bool = False):
+        """Serve GET as text/event-stream; each connection pops the next script.
+
+        With drop=True the connection closes after the script instead of
+        holding, simulating a dropped SSE link. The last script repeats.
+        """
+        self.routes[("GET", path)] = {
+            "status": 200,
+            "body": None,
+            "handler": None,
+            "raw": list(scripts),
+            "hold": hold,
+            "drop": drop,
+        }
 
     @property
     def base_url(self) -> str:
@@ -73,7 +84,8 @@ class FakeApi:
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
                 self.end_headers()
-                for delay, chunk in route["raw"]:
+                script = route["raw"].pop(0) if len(route["raw"]) > 1 else route["raw"][0]
+                for delay, chunk in script:
                     if delay:
                         time.sleep(delay)
                     try:
@@ -81,7 +93,10 @@ class FakeApi:
                         self.wfile.flush()
                     except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
                         return
-                time.sleep(route["hold"])
+                if route["drop"]:
+                    self.close_connection = True
+                else:
+                    time.sleep(route["hold"])
 
             def do_GET(self):
                 self._dispatch("GET")

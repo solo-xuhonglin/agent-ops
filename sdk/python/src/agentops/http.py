@@ -1,3 +1,5 @@
+import json
+from collections.abc import Iterator
 from typing import Self
 
 import httpx
@@ -19,6 +21,25 @@ class Http:
             envelope = response.json().get("error", {})
             raise from_response(response.status_code, envelope.get("code", ""), envelope.get("message", ""))
         return response.json()
+
+    def events(self, path: str, params: dict) -> Iterator[tuple[str | None, dict]]:
+        """Yield (frame_id, payload) per SSE frame; the stream never ends on its own."""
+        with self._client.stream("GET", path, params=params) as response:
+            if response.status_code >= 300:
+                response.read()
+                envelope = response.json().get("error", {})
+                raise from_response(response.status_code, envelope.get("code", ""), envelope.get("message", ""))
+            frame_id = None
+            data_lines = []
+            for line in response.iter_lines():
+                if line == "":
+                    if data_lines:
+                        yield frame_id, json.loads("\n".join(data_lines))
+                    frame_id, data_lines = None, []
+                elif line.startswith("id: "):
+                    frame_id = line[4:]
+                elif line.startswith("data: "):
+                    data_lines.append(line[6:])
 
     def close(self):
         self._client.close()

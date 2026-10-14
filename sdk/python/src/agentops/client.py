@@ -1,5 +1,8 @@
+import time
 from dataclasses import dataclass
 from typing import Any, Self
+
+import httpx
 
 from agentops.http import Http
 
@@ -16,6 +19,16 @@ class InputParam:
 @dataclass
 class Agent:
     input: list[InputParam]
+
+
+@dataclass
+class Event:
+    """One stream frame; run_id/seq are None on state frames."""
+
+    type: str
+    run_id: str | None
+    seq: int | None
+    data: dict
 
 
 class Run:
@@ -59,6 +72,34 @@ class Session:
         body = {"content": content, "params": params or {}, "output_schema": output_schema, "request_id": request_id}
         view = self._client._http.json("POST", f"/v1/sessions/{self.id}/runs", body)
         return self._client._run(view)
+
+    def stream(self, *, from_run: str | None = None, from_seq: int = 0):
+        """Subscribe to the session: state pushes and persistent events.
+
+        Duplicates (the subscribe-before-replay race, replays after reconnect)
+        are suppressed by a per-run seq watermark; a dropped link reconnects
+        with the last delivered cursor. HTTP errors raise, no retry.
+        """
+        cursor = None if from_run is None else (from_run, from_seq)
+        watermark: dict[str, int] = {}
+        while True:
+            params = {} if cursor is None else {"from_run": cursor[0], "from_seq": cursor[1]}
+            try:
+                for _, payload in self._client._http.events(f"/v1/sessions/{self.id}/events", params):
+                    if payload["type"] == "state":
+                        run_id = payload["data"].get("run")
+                        self.current_run = None if run_id is None else Run(self._client, run_id, self.id)
+                        yield Event("state", None, None, payload["data"])
+                        continue
+                    data = payload["data"]
+                    if data["seq"] <= watermark.get(data["run_id"], 0):
+                        continue
+                    watermark[data["run_id"]] = data["seq"]
+                    cursor = (data["run_id"], data["seq"])
+                    yield Event(payload["type"], data["run_id"], data["seq"], data)
+            except (httpx.TransportError, httpx.RemoteProtocolError):
+                pass
+            time.sleep(self._client.reconnect_delay)
 
 
 class Client:
