@@ -11,37 +11,51 @@
 
 ## 1. 路线图
 
-小步迭代：每个单元以可运行的测试收口，顺序即依赖序。骨架（六容器 Docker 拓扑）已就位。
+小步迭代：每个单元以可运行的测试收口，顺序即依赖序。已完成：骨架（六容器 Docker 拓扑）、单元 1（config 接库）。阶段 A 先垂直打通 SDK 链路——worker 先用桩执行（直接落 `run_started` / `run_finished`），链路立住后在阶段 B 换成真引擎；快照、key、租户等由种子数据落库，配置系统（10–16）建成后由真实流程逐个替换种子。
+
+### 阶段 A：SDK 链路
 
 | # | 单元 | 验证 |
 |---|---|---|
-| 1 | `config` 接库：`DATABASE_URL`、SQLAlchemy 引擎、启动建表、首表 `iam_tenants`、`/health` 查库、pytest 基建 | 建表与查询测试通过；`/health` 报告数据库状态 |
-| 2 | `iam` 领域：账号（平台级、邮箱唯一）、成员与三角色、邀请、配额与用量（建而不用） | 领域测试：邀请 → 加入 → 角色变更 |
-| 3 | `config` API 骨架：登录会话、RBAC 判定、`audit` 追加 | API 测试：三角色各自的允许与拒绝；审计行落库 |
-| 4 | `shared/`：Tool / Skill 的 spec 模型、校验器、快照序列化 | 序列化 round-trip；校验器正反用例 |
-| 5 | `tool` + `skill` 领域：表、草稿 CRUD、软删除、乐观锁 | API 测试 |
-| 6 | `secrets` 领域：主密钥（docker secret）、加密存储、登记与归档、审计 | 断言明文不出现在库与日志 |
-| 7 | `shared/`：Agent（ReAct）spec 模型与校验器、输入声明 | 校验器正反用例 |
-| 8 | `agent` 领域：表、CRUD、能力挂载、永久 key 生成与重置（只存哈希） | API 测试 |
-| 9 | `release` 领域：快照、版本、发布、回滚、diff | 发布与回滚的不变式测试 |
-| 10 | 导入导出：跨环境迁移、业务标识翻译、缺凭据报错 | 导出 → 导入 round-trip |
-| 11 | `shared/`：运行日志与事件词汇表（类型、`action_id` 配对、`seq`） | 配对不变式与序列化测试 |
-| 12 | `worker`：ReAct 编译与执行、LLM 调用、日志落地（测试用 fake LLM，不经 `manager`） | 一个 Run 的日志序列符合 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 第 2 节 |
-| 13 | `worker`：上下文压缩（阈值、LLM 摘要、`context_compacted`） | 触发与重建测试 |
-| 14 | `worker`：HTTP 工具执行（参数模板、凭据注入、响应裁剪、幂等键） | 对 mock 外部服务的工具测试 |
-| 15 | `contract/` 第一版 + `manager` HTTP 面（含自己的建表）：永久 / 临时 key、params 校验、会话租约、submit 落库（幂等）、get / cancel | API 测试，含幂等重放返回同一 Run |
-| 16 | 内部协议：常驻连接（报到、心跳、dispatch、cancel）、epoch、巡检 | 集成测试：submit → `worker` 执行 → 日志落库 |
-| 17 | 事件推流：Run 连接、SSE 订阅、订阅补发、断线重连、周期 state | 断线重连不丢持久事件 |
-| 18 | 后端 Python SDK：句柄语义（wait / stream）、错误映射 | 端到端冒烟（fake LLM 全回路） |
-| 19 | Python 工具沙箱：预构建镜像、断网、限额、JSON stdio | 沙箱内执行测试 |
-| 20 | Skill 渐进加载：名称与描述常驻、正文按需拉取 | `worker` 单元测试 |
-| 21 | DAG：`config` 端校验不变式 + `worker` 端编译 | 不变式测试；DAG Run 执行测试 |
-| 22 | 子 Agent：声明共用、环检测、嵌套上限 | 嵌套运行测试 |
-| 23 | web 配置 UI：登录、领域 CRUD、发布与回滚 | 浏览器冒烟 |
-| 24 | 前端 TypeScript SDK：临时 key 流程、会话订阅 | Node 端到端冒烟 |
-| 25 | 观测：运行查询、成本汇总 | API 测试 |
+| 2 | `shared/`：Agent（ReAct）spec 模型与输入声明、运行日志与事件词汇表；各服务按写者归属建表、种子数据落库 | 序列化 round-trip；配对不变式测试 |
+| 3 | `contract/` 第一版 + `manager` HTTP 面：永久 key 鉴权、params 校验、会话租约、submit 落库（幂等）、get / cancel | API 测试，含幂等重放返回同一 Run |
+| 4 | 内部协议 + worker 桩执行：常驻连接（报到、心跳、dispatch、cancel）、epoch、巡检；桩执行不调模型，直接落日志 | 集成测试：submit → worker 落日志 → Run 到终态 |
+| 5 | 事件推流：Run 连接、SSE 订阅、订阅补发、断线重连、周期 state | 断线重连不丢持久事件 |
+| 6 | 两个 SDK 并列收口：后端 Python 与前端 TypeScript，方法一一对应，句柄语义（wait / stream）、错误映射（临时 key 靠后，直连即测） | 两个 SDK 的端到端冒烟：submit → 桩执行 → 事件流回 SDK |
 
-**每个单元一份实现计划**，做完一个再开下一个。`shared/` 与 `contract/` 的每一刀紧贴它的第一个消费者。
+### 阶段 B：引擎功能
+
+| # | 单元 | 验证 |
+|---|---|---|
+| 7 | `worker`：ReAct 编译与执行、LLM 调用（fake LLM）、流式增量（`message_started` / `message_delta`）替换桩执行 | 一个 Run 的日志序列符合 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 第 2 节 |
+| 8 | `worker`：上下文压缩（阈值、LLM 摘要、`context_compacted`） | 触发与重建测试 |
+| 9 | `worker`：HTTP 工具执行 + Tool spec 模型（参数模板、凭据占位、响应裁剪、幂等键） | 对 mock 外部服务的工具测试 |
+
+### 阶段 C：配置系统
+
+| # | 单元 | 验证 |
+|---|---|---|
+| 10 | `iam` 领域：账号（平台级、邮箱唯一）、成员与三角色、邀请、配额与用量（建而不用）、软删除 | 领域测试：邀请 → 加入 → 角色变更 |
+| 11 | `config` API 骨架：登录会话、RBAC 判定、`audit` 追加 | API 测试：三角色各自的允许与拒绝；审计行落库 |
+| 12 | `tool` + `skill` 领域：表、草稿 CRUD、软删除、乐观锁（补全 Skill spec 模型） | API 测试 |
+| 13 | `secrets` 领域：主密钥（docker secret）、加密存储、登记与归档；worker 端凭据注入 | 断言明文不出现在库与日志 |
+| 14 | `agent` 领域：表、CRUD、能力挂载、永久 key 生成与重置（替换种子） | API 测试 |
+| 15 | `release` 领域：快照、版本、发布、回滚、diff（替换种子快照） | 发布与回滚的不变式测试 |
+| 16 | 导入导出：跨环境迁移、业务标识翻译、缺凭据报错 | 导出 → 导入 round-trip |
+
+### 阶段 D：扩展与外围
+
+| # | 单元 | 验证 |
+|---|---|---|
+| 17 | 临时 key：换 key 接口（签名令牌、重置即失效）、终端用户标识绑定、前端 SDK 的 key 获取与续期 | 换 key 后可调用；重置永久 key 后临时 key 立即失效 |
+| 18 | Python 工具沙箱：预构建镜像、断网、限额、JSON stdio | 沙箱内执行测试 |
+| 19 | Skill 渐进加载：名称与描述常驻、正文按需拉取 | `worker` 单元测试 |
+| 20 | DAG：`config` 端校验不变式 + `worker` 端编译 | 不变式测试；DAG Run 执行测试 |
+| 21 | 子 Agent：声明共用、环检测、嵌套上限 | 嵌套运行测试 |
+| 22 | web 配置 UI：登录、领域 CRUD、发布与回滚 | 浏览器冒烟 |
+| 23 | 观测：运行查询、成本汇总 | API 测试 |
+
+**每个单元一份实现计划**，做完一个再开下一个；`shared/` 与 `contract/` 的每一刀紧贴它的第一个消费者。
 
 ---
 
