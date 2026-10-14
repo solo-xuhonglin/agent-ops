@@ -4,6 +4,7 @@ import yaml
 
 EXPECTED_SURFACE = {
     ("post", "/v1/sessions"),
+    ("get", "/v1/sessions/{session_id}/events"),
     ("post", "/v1/sessions/{session_id}/runs"),
     ("get", "/v1/runs/{run_id}"),
     ("post", "/v1/runs/{run_id}/cancel"),

@@ -39,6 +39,43 @@ paths:
         "401":
           $ref: "#/components/responses/Error"
 
+  /v1/sessions/{session_id}/events:
+    get:
+      operationId: streamSession
+      summary: SSE stream of the session's events and state
+      description: >
+        Subscribe to a session. First frame is a state push, then persistent
+        events replay from the cursor (no cursor means the current run from
+        its start), then live events. Event frames carry id "<run_id>:<seq>",
+        the cursor for reconnecting; state frames carry none and repeat
+        periodically as keepalive. Events may repeat; dedup by (run_id, seq).
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: from_run
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: from_seq
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: The event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Error"
+
   /v1/sessions/{session_id}/runs:
     post:
       operationId: submitRun

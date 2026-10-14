@@ -1,0 +1,292 @@
+import json
+import socket
+import threading
+import time
+import urllib.request
+from urllib.parse import urlparse
+
+import pytest
+import uvicorn
+from manager.app import app
+from util import FakeWorker
+
+from manager import internal
+
+_GLOBAL_STATE = (
+    "workers",
+    "run_conns",
+    "reported_running",
+    "dispatched_at",
+    "run_session",
+    "subscribers",
+    "session_runs",
+    "port",
+    "_loop",
+    "_wakeup",
+)
+
+
+@pytest.fixture(scope="module")
+def base_url():
+    # This module runs its own app lifespan on a uvicorn thread, which
+    # rebinds internal's module state to that loop; the snapshot restores
+    # the earlier state (the session TestClient's) so later suites see it.
+    snapshot = {name: getattr(internal, name) for name in _GLOBAL_STATE}
+    config = uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning")
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.time() + 10
+    while not server.started and time.time() < deadline:
+        time.sleep(0.05)
+    yield f"http://127.0.0.1:{server.servers[0].sockets[0].getsockname()[1]}"
+    server.should_exit = True
+    thread.join(timeout=5)
+    for name, value in snapshot.items():
+        setattr(internal, name, value)
+
+
+def api_call(base_url: str, method: str, path: str, key: str, body: dict | None = None) -> dict:
+    request = urllib.request.Request(
+        base_url + path,
+        method=method,
+        data=json.dumps(body).encode() if body is not None else None,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    )
+    return json.loads(urllib.request.urlopen(request, timeout=5).read().decode())
+
+
+class Sse:
+    """A raw-socket SSE reader — the tests read the stream the way a client does."""
+
+    def __init__(self, base_url: str, path: str, key: str):
+        target = urlparse(base_url)
+        self.sock = socket.create_connection((target.hostname, target.port), timeout=3)
+        self.sock.sendall(f"GET {path} HTTP/1.1\r\nHost: t\r\nAuthorization: Bearer {key}\r\n\r\n".encode())
+        self.buffer = b""
+        self._lines = []
+        while b"\r\n\r\n" not in self.buffer:
+            self.buffer += self.sock.recv(4096)
+        header, self.buffer = self.buffer.split(b"\r\n\r\n", 1)
+        self.status = int(header.split(b" ")[1])
+
+    def frames(self, count: int) -> list[tuple[str | None, dict]]:
+        frames = []
+        while len(frames) < count:
+            while b"\n" not in self.buffer:
+                chunk = self.sock.recv(4096)
+                if not chunk:
+                    raise ConnectionError("stream closed early")
+                self.buffer += chunk
+            line, self.buffer = self.buffer.split(b"\n", 1)
+            text = line.decode().rstrip("\r")
+            if text == "":
+                if self._lines:
+                    frames.append(self._parse(self._lines))
+                    self._lines = []
+            else:
+                self._lines.append(text)
+        return frames
+
+    @staticmethod
+    def _parse(lines: list[str]) -> tuple[str | None, dict]:
+        cursor = None
+        payload = None
+        for line in lines:
+            if line.startswith("id: "):
+                cursor = line.removeprefix("id: ")
+            elif line.startswith("data: "):
+                payload = json.loads(line.removeprefix("data: "))
+        return cursor, payload
+
+    def close(self):
+        self.sock.close()
+
+
+class RunLink:
+    """The worker's Run connection: rows land in the log first, then ride the wire."""
+
+    def __init__(self, engine, run_id: str, epoch: int):
+        self.engine = engine
+        self.run_id = run_id
+        self.sock = socket.create_connection(("127.0.0.1", internal.port), timeout=3)
+        self.sock.sendall(encode_state(run_id, epoch))
+
+    def event(self, type_: str, seq: int, payload: dict):
+        from shared.wire import encode
+        from util import write_log
+
+        write_log(self.engine, self.run_id, seq, type_, payload)
+        self.sock.sendall(encode(type_, {"run_id": self.run_id, "seq": seq, "action_id": None, **payload}))
+
+    def close(self):
+        self.sock.close()
+        time.sleep(0.2)
+
+
+def encode_state(run_id: str, epoch: int) -> bytes:
+    from shared.wire import encode
+
+    return encode("state", {"worker_id": "w-stream", "run_id": run_id, "epoch": epoch})
+
+
+def dispatch_run(base_url, key, worker) -> tuple[str, str, int]:
+    session_id = api_call(base_url, "POST", "/v1/sessions", key)["session_id"]
+    body = api_call(
+        base_url, "POST", f"/v1/sessions/{session_id}/runs", key, {"content": "hi", "params": {"project_id": "P"}}
+    )
+    type_, data = worker.read()
+    assert type_ == "dispatch"
+    return session_id, body["run_id"], data["epoch"]
+
+
+@pytest.fixture(autouse=True)
+def stream_env(monkeypatch):
+    monkeypatch.setenv("STATE_INTERVAL", "0.2")
+
+
+def test_subscribe_without_cursor_from_run_start(base_url, auth_headers, db_engine):
+    key = auth_headers["Authorization"].removeprefix("Bearer ")
+    worker = FakeWorker("w-stream")
+    try:
+        session_id, run_id, epoch = dispatch_run(base_url, key, worker)
+        link = RunLink(db_engine, run_id, epoch)
+        try:
+            link.event("run_started", 1, {"content": "hi", "session_id": session_id})
+            link.event("run_finished", 2, {"status": "succeeded", "result": "stub: hi"})
+            time.sleep(0.3)
+
+            stream = Sse(base_url, f"/v1/sessions/{session_id}/events", key)
+            try:
+                assert stream.status == 200
+                frames = stream.frames(3)
+            finally:
+                stream.close()
+
+            assert frames[0][0] is None and frames[0][1]["type"] == "state"
+            assert frames[0][1]["data"]["session_id"] == session_id
+            assert frames[1] == (
+                f"{run_id}:1",
+                {
+                    "type": "run_started",
+                    "data": {"run_id": run_id, "seq": 1, "action_id": None, "content": "hi", "session_id": session_id},
+                },
+            )
+            assert frames[2] == (
+                f"{run_id}:2",
+                {
+                    "type": "run_finished",
+                    "data": {"run_id": run_id, "seq": 2, "action_id": None, "status": "succeeded", "result": "stub: hi"},
+                },
+            )
+        finally:
+            link.close()
+    finally:
+        worker.close()
+
+
+def test_reconnect_from_cursor(base_url, auth_headers, db_engine):
+    key = auth_headers["Authorization"].removeprefix("Bearer ")
+    worker = FakeWorker("w-cur")
+    try:
+        session_id, run_id, epoch = dispatch_run(base_url, key, worker)
+        link = RunLink(db_engine, run_id, epoch)
+        try:
+            link.event("run_started", 1, {"content": "hi", "session_id": session_id})
+            link.event("run_finished", 2, {"status": "succeeded", "result": "stub: hi"})
+            time.sleep(0.3)
+
+            stream = Sse(base_url, f"/v1/sessions/{session_id}/events?from_run={run_id}&from_seq=1", key)
+            try:
+                frames = stream.frames(2)
+            finally:
+                stream.close()
+
+            assert frames[0][1]["type"] == "state"
+            assert frames[1][1]["type"] == "run_finished"
+            assert frames[1][0] == f"{run_id}:2"
+        finally:
+            link.close()
+    finally:
+        worker.close()
+
+
+def test_live_event_forwarded(base_url, auth_headers, db_engine):
+    key = auth_headers["Authorization"].removeprefix("Bearer ")
+    worker = FakeWorker("w-live")
+    try:
+        session_id, run_id, epoch = dispatch_run(base_url, key, worker)
+        link = RunLink(db_engine, run_id, epoch)
+        try:
+            stream = Sse(base_url, f"/v1/sessions/{session_id}/events", key)
+            try:
+                assert stream.frames(1)[0][1]["type"] == "state"
+
+                link.event("run_started", 1, {"content": "hi", "session_id": session_id})
+                frame = stream.frames(1)[0]
+
+                assert frame == (
+                    f"{run_id}:1",
+                    {
+                        "type": "run_started",
+                        "data": {"run_id": run_id, "seq": 1, "action_id": None, "content": "hi", "session_id": session_id},
+                    },
+                )
+            finally:
+                stream.close()
+        finally:
+            link.close()
+    finally:
+        worker.close()
+
+
+def test_periodic_state_while_idle(base_url, auth_headers):
+    key = auth_headers["Authorization"].removeprefix("Bearer ")
+    session_id = api_call(base_url, "POST", "/v1/sessions", key)["session_id"]
+
+    stream = Sse(base_url, f"/v1/sessions/{session_id}/events", key)
+    try:
+        frames = stream.frames(3)
+    finally:
+        stream.close()
+
+    assert all(cursor is None and payload["type"] == "state" for cursor, payload in frames)
+
+
+def test_second_subscriber_independent(base_url, auth_headers, db_engine):
+    key = auth_headers["Authorization"].removeprefix("Bearer ")
+    worker = FakeWorker("w-two")
+    try:
+        session_id, run_id, epoch = dispatch_run(base_url, key, worker)
+        link = RunLink(db_engine, run_id, epoch)
+        try:
+            link.event("run_started", 1, {"content": "hi", "session_id": session_id})
+            time.sleep(0.3)
+
+            first = Sse(base_url, f"/v1/sessions/{session_id}/events", key)
+            second = Sse(base_url, f"/v1/sessions/{session_id}/events", key)
+            try:
+                frames_one = first.frames(2)
+                frames_two = second.frames(2)
+            finally:
+                first.close()
+                second.close()
+
+            assert frames_one == frames_two
+            assert frames_one[1][1]["type"] == "run_started"
+        finally:
+            link.close()
+    finally:
+        worker.close()
+
+
+def test_disconnect_unsubscribes(base_url, auth_headers):
+    key = auth_headers["Authorization"].removeprefix("Bearer ")
+    session_id = api_call(base_url, "POST", "/v1/sessions", key)["session_id"]
+
+    stream = Sse(base_url, f"/v1/sessions/{session_id}/events", key)
+    stream.frames(1)
+    stream.close()
+    time.sleep(0.3)
+
+    assert internal.subscribers.get(session_id) in (None, set())

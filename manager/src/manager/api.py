@@ -1,12 +1,12 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from shared.models import AgentDefinition, ExecutionSession
 from sqlalchemy.orm import Session
 
-from manager import db, internal, runs
+from manager import db, internal, runs, streaming
 from manager.auth import require_agent
 from manager.runs import RunSubmitBody, RunView
 
@@ -30,6 +30,19 @@ def new_session(agent: AgentDefinition = Depends(require_agent)) -> SessionView:
         session.add(row)
         session.flush()
         return SessionView(session_id=row.id)
+
+
+@router.get("/sessions/{session_id}/events")
+async def subscribe_events(
+    session_id: UUID,
+    from_run: UUID | None = None,
+    from_seq: int = 0,
+    agent: AgentDefinition = Depends(require_agent),
+) -> StreamingResponse:
+    return StreamingResponse(
+        streaming.stream(session_id, from_run, from_seq),
+        media_type="text/event-stream",
+    )
 
 
 @router.post("/sessions/{session_id}/runs")

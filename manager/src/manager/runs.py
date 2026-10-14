@@ -140,6 +140,46 @@ def is_active(session: Session, run_id: UUID) -> bool:
     return tail is None or tail.type not in TERMINAL_TYPES
 
 
+def replay_events(session_id: str, from_run: UUID | None, from_seq: int) -> list[dict]:
+    """Persistent events to catch a subscriber up, in order.
+
+    No cursor means the current run from its start — a new tab wants what is
+    happening now (docs/05 §4.2). A cursor replays the rest of that run and
+    everything after it.
+    """
+    with Session(db.engine) as session:
+        run_ids = [
+            str(value)
+            for value in session.scalars(
+                select(ExecutionRun.id).where(ExecutionRun.session_id == session_id).order_by(ExecutionRun.created_at)
+            )
+        ]
+    if from_run is None:
+        selected = run_ids[-1:]
+        floor = {}
+    else:
+        marker = str(from_run)
+        index = next((i for i, value in enumerate(run_ids) if value == marker), None)
+        if index is None:
+            selected = run_ids[-1:]
+            floor = {}
+        else:
+            selected = run_ids[index:]
+            floor = {marker: from_seq}
+
+    events = []
+    for run_id in selected:
+        with Session(db.engine) as session:
+            rows = session.scalars(select(RunLog).where(RunLog.run_id == run_id).order_by(RunLog.seq)).all()
+        for row in rows:
+            if row.seq <= floor.get(run_id, 0):
+                continue
+            events.append(
+                {"type": row.type, "data": {"run_id": run_id, "seq": row.seq, "action_id": row.action_id, **row.payload}}
+            )
+    return events
+
+
 def build_view(run: ExecutionRun) -> RunView:
     with Session(db.engine) as session:
         tail = session.scalar(select(RunLog).where(RunLog.run_id == run.id).order_by(RunLog.seq.desc()).limit(1))

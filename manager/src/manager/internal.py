@@ -3,6 +3,7 @@ import logging
 import os
 import time
 
+from shared.events import EventType
 from shared.models import ExecutionRun, ExecutionSession, ReleaseArtifact
 from shared.wire import encode, read_frame
 from sqlalchemy import select, update
@@ -20,7 +21,14 @@ workers: dict[str, asyncio.StreamWriter] = {}
 run_conns: set[str] = set()
 reported_running: dict[str, set[str]] = {}
 dispatched_at: dict[str, float] = {}
+run_session: dict[str, str] = {}
+# Live side: subscriber queues per session, and the session state projected
+# from forwarded events (a re-statement, never a second source — docs/06 §4).
+subscribers: dict[str, set[asyncio.Queue]] = {}
+session_runs: dict[str, dict] = {}
 port: int = 0
+
+_EVENT_NAMES = {member.value for member in EventType}
 
 _loop: asyncio.AbstractEventLoop | None = None
 _wakeup: asyncio.Event | None = None
@@ -84,6 +92,7 @@ async def dispatch_pass() -> None:
         except ConnectionError:
             continue
         dispatched_at[run_id] = time.monotonic()
+        run_session[run_id] = packet["session_id"]
 
 
 def _eligible_runs(excluded: set[str], claimed: set[str], grace: float, now: float) -> list[str]:
@@ -141,25 +150,50 @@ def _send_all(type_: str, data: dict) -> None:
         writer.write(frame)
 
 
+def subscribe(session_id: str, queue: asyncio.Queue) -> None:
+    subscribers.setdefault(session_id, set()).add(queue)
+
+
+def unsubscribe(session_id: str, queue: asyncio.Queue) -> None:
+    queues = subscribers.get(session_id)
+    if queues is not None:
+        queues.discard(queue)
+        if not queues:
+            subscribers.pop(session_id, None)
+
+
+def _forward(session_id: str, payload: dict) -> None:
+    for queue in subscribers.get(session_id, ()):
+        queue.put_nowait(payload)
+
+
 async def _handle_connection(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
     worker_id = None
     run_id = None
     try:
         while True:
             type_, data = await read_frame(reader)
-            if type_ != "state":
+            if type_ == "state":
+                if "run_id" in data:
+                    run_id = data["run_id"]
+                    run_conns.add(run_id)
+                elif "worker_id" in data:
+                    worker_id = data["worker_id"]
+                    workers[worker_id] = writer
+                    if "running" in data:
+                        reported_running[worker_id] = set(data["running"])
+            elif type_ in _EVENT_NAMES:
+                session_id = run_session.get(data.get("run_id"))
+                if session_id is None:
+                    log.error("event for undispatched run %r; dropping", data.get("run_id"))
+                else:
+                    session_runs[session_id] = {"run_id": data["run_id"], "seq": data.get("seq")}
+                    _forward(session_id, {"type": type_, "data": data})
+            else:
                 # One deployment upgrades together: an unknown name on the
                 # internal link is a bug, so the connection drops (docs/06 §1.2).
                 log.error("unknown frame %r on internal link; dropping connection", type_)
                 break
-            if "run_id" in data:
-                run_id = data["run_id"]
-                run_conns.add(run_id)
-            elif "worker_id" in data:
-                worker_id = data["worker_id"]
-                workers[worker_id] = writer
-                if "running" in data:
-                    reported_running[worker_id] = set(data["running"])
     except (asyncio.IncompleteReadError, ConnectionError):
         pass
     finally:
