@@ -20,7 +20,7 @@ SDK 是平台对外的唯一入口。**它只认三样东西：key、输入、�
 
 | SDK | 语言与形态 | 身份 |
 |---|---|---|
-| 后端 | Python 包，同步 + 异步两套 | Agent 的永久 key |
+| 后端 | Python 包，同步接口 | Agent 的永久 key |
 | 前端 | TypeScript 包，纯脚本库 | 换来的临时 key |
 
 **前端 SDK 不提供 UI，不绑定任何框架**，浏览器与 Node 都能跑。它只做四件事：发请求、订阅流、管会话、转发令牌。
@@ -34,7 +34,7 @@ SDK 是平台对外的唯一入口。**它只认三样东西：key、输入、�
 ## 3. 调用模型
 
 ```
-client = create_client(key, *, user=None)   # 后端给永久 key，前端给临时 key
+client = create_client(key, *, base_url=...)   # 后端给永久 key，前端给临时 key（临时 key 随第 7 节落地）
 
 client.new_session()             → Session   # 新开一段对话
 client.get_session(session_id)   → Session   # 取已有的
@@ -52,7 +52,7 @@ run.id / run.session_id / run.status
 
 **两层：`client` 是 Agent 的句柄，`session` 是对话的句柄。**
 
-`key` 决定租户、Agent 与主体 —— client 只绑这个。**会话是显式取的**：`new_session()` 新开，`get_session(id)` 取已有的。**所有跟这段对话有关的动作都挂在 `session` 上**：提交、订阅、当前 Run。
+`key` 决定租户、Agent 与主体 —— client 只绑这个。**会话是显式取的**：`new_session()` 新开，`get_session(id)` 取已有的（本地构造句柄，不发请求；不存在的会话在第一次使用时才报错）。**所有跟这段对话有关的动作都挂在 `session` 上**：提交、订阅、当前 Run。
 
 **每个 Run 都属于一个会话。** 没有「不带会话的运行」—— 一次性的调用（定时任务）也新开一个，于是模型只有一条链：**会话 → 运行 → 日志**。
 
@@ -233,7 +233,7 @@ result = client.get_run(run.id).wait()
 
 ### 6.3 超时与取消
 
-**`wait` 超时只是调用方不等了，运行继续。** 要停下来必须显式 `cancel()`。已产生的成本照记。
+**`wait` 超时只是调用方不等了，运行继续。** 要停下来必须显式 `cancel()`。已产生的成本照记。超时单位：Python 秒，TypeScript 毫秒。
 
 `run.status` 是这五个之一：`pending` / `running` / `succeeded` / `failed` / `cancelled`。**`wait` 超时不改变状态** —— 它仍是 `running`。
 
@@ -245,7 +245,7 @@ result = client.get_run(run.id).wait()
 
 **传输是 SSE**，用 `fetch` 流式读，不用原生 `EventSource` —— 后者设不了自定义请求头。见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 4.1。
 
-**内容不丢失，增量粒度不保证。** 断线期间的文本增量不会重放，重连后可能等这一步结束、一次性拿到整段文本。顺序单调递增，但**可能重复** —— 调用方按序号去重。
+**内容不丢失，增量粒度不保证。** 断线期间的文本增量不会重放，重连后可能等这一步结束、一次性拿到整段文本。顺序单调递增，但**可能重复** —— 两个 SDK 内部按 `(run_id, seq)` 去重后交付，并在断线时自动带游标重连。
 
 > 这条对服务端是硬要求：**动作事实必须落成可重放的日志**，不能只走连接。见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 第 4 节。
 
@@ -284,8 +284,12 @@ result = client.get_run(run.id).wait()
 | `QuotaError` | 超出配额或触发限流。**v1 不产生** —— 配额只建不用（见 [10-permissions.md](./10-permissions.md) 2.2） |
 | `ContractError` | 参数或协议不合法 |
 | `ConflictError` | 会话里已有活跃的运行，这次提交被拒绝（见 6.2） |
+| `NotFoundError` | 资源不存在或不归这个 key：404，如 `get_run` 的 id |
 | `RunFailed` | 运行以失败结束（`wait` 时抛出） |
+| `RunCancelled` | 运行被取消（`wait` 时抛出） |
 | `Timeout` | `wait` 超时；**运行仍在继续** |
+
+TypeScript 侧方法与参数名一一对应（`snake_case` → `camelCase`），异常名带 `Error` 后缀（`RunFailedError` 等）。
 
 ---
 
