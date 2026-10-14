@@ -12,6 +12,7 @@ interface JsonRoute {
   kind: "json";
   status: number;
   body: unknown;
+  text?: string;
   handler?: (request: RecordedRequest) => [number, unknown];
 }
 
@@ -50,8 +51,12 @@ export class FakeApi {
     return `http://127.0.0.1:${address.port}`;
   }
 
-  route(method: string, path: string, opts: { status?: number; body?: unknown; handler?: (r: RecordedRequest) => [number, unknown] } = {}): void {
-    this.routes.set(`${method} ${path}`, { kind: "json", status: opts.status ?? 200, body: opts.body, handler: opts.handler });
+  route(
+    method: string,
+    path: string,
+    opts: { status?: number; body?: unknown; text?: string; handler?: (r: RecordedRequest) => [number, unknown] } = {},
+  ): void {
+    this.routes.set(`${method} ${path}`, { kind: "json", status: opts.status ?? 200, body: opts.body, text: opts.text, handler: opts.handler });
   }
 
   /** Serve GET as text/event-stream; each connection pops the next script (last repeats). */
@@ -97,6 +102,11 @@ export class FakeApi {
         await sleep(route.hold * 1000);
         res.end();
       }
+      return;
+    }
+    if (route.text !== undefined) {
+      res.writeHead(route.status, { "Content-Type": "text/html", "Content-Length": Buffer.byteLength(route.text) });
+      res.end(route.text);
       return;
     }
     const [status, body] = route.handler ? route.handler(record) : [route.status, route.body];

@@ -1,5 +1,9 @@
+import socket
+import threading
+import time
+
 import pytest
-from agentops import AgentOpsError, AuthError, ConflictError, ContractError, HttpError, NotFoundError
+from agentops import AgentOpsError, AuthError, ConflictError, ContractError, HttpError, NotFoundError, Timeout
 from agentops.http import Http
 
 
@@ -34,3 +38,42 @@ def test_error_envelope_maps_by_status(fake, status, cls):
     assert isinstance(exc.value, AgentOpsError)
     assert exc.value.code == "c"
     assert exc.value.message == "m"
+
+
+def test_non_json_error_body_still_maps(fake):
+    fake.route("GET", "/v1/x", status=502, text="<html>bad gateway</html>")
+
+    with pytest.raises(HttpError) as exc:
+        Http(fake.base_url, "k").json("GET", "/v1/x")
+
+    assert exc.value.status_code == 502
+    assert "bad gateway" in exc.value.message
+
+
+def test_json_raises_timeout_on_a_stalled_server():
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+
+    def stall():
+        conn, _ = server.accept()
+        time.sleep(10)
+        conn.close()
+
+    threading.Thread(target=stall, daemon=True).start()
+    http = Http(f"http://127.0.0.1:{server.getsockname()[1]}", "k", timeout=0.5)
+
+    outcome: dict = {}
+
+    def call():
+        try:
+            http.json("GET", "/v1/agent")
+        except BaseException as error:  # noqa: BLE001 - the outcome is asserted below
+            outcome["error"] = error
+
+    caller = threading.Thread(target=call, daemon=True)
+    caller.start()
+    caller.join(3)
+    server.close()
+
+    assert isinstance(outcome.get("error"), Timeout)

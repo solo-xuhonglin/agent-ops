@@ -145,6 +145,22 @@ test("cancel refreshes the snapshot", async () => {
   });
 });
 
+test("non-json error bodies still map", async () => {
+  await withFake(async (fake, baseUrl) => {
+    fake.route("GET", "/v1/x", { status: 502, text: "<html>bad gateway</html>" });
+    const http = new Http(baseUrl, "k");
+    await assert.rejects(
+      () => http.json("GET", "/v1/x"),
+      (error: unknown) => {
+        assert.ok(error instanceof HttpError);
+        assert.equal((error as HttpError).statusCode, 502);
+        assert.match((error as HttpError).message, /gateway/i);
+        return true;
+      },
+    );
+  });
+});
+
 function serving(fake: FakeApi, views: Record<string, unknown>[]): void {
   const remaining = [...views];
   fake.route("GET", `/v1/runs/${RUN_ID}`, {

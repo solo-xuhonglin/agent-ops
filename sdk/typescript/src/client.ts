@@ -1,4 +1,4 @@
-import { AgentOpsError, RunCancelledError, RunFailedError, TimeoutError } from "./errors.ts";
+import { RunCancelledError, RunFailedError, TimeoutError } from "./errors.ts";
 import { Http } from "./http.ts";
 
 export interface InputParam {
@@ -131,8 +131,10 @@ export class Session {
           yield { type: payload.type, runId, seq, data: payload.data };
         }
       } catch (error) {
-        if (error instanceof AgentOpsError) throw error;
-        // Network-level failures (fetch TypeError, mid-stream read errors) reconnect.
+        // undici surfaces network-level failures as TypeError ("fetch failed" /
+        // "terminated"); only those reconnect. Everything else (malformed
+        // payloads, bugs) propagates, mirroring the Python SDK.
+        if (!(error instanceof TypeError && /fetch failed|terminated/.test(error.message))) throw error;
       }
       await sleep(this.client.reconnectDelayMs);
     }

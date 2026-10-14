@@ -15,9 +15,12 @@ class FakeApi:
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), self._make_handler())
         threading.Thread(target=self._server.serve_forever, daemon=True).start()
 
-    def route(self, method: str, path: str, *, status: int = 200, body=None, handler=None):
-        """Register one route; `handler(request) -> (status, body)` overrides static body."""
-        self.routes[(method, path)] = {"status": status, "body": body, "handler": handler, "raw": None}
+    def route(self, method: str, path: str, *, status: int = 200, body=None, text: str | None = None, handler=None):
+        """Register one route; `handler(request) -> (status, body)` overrides static body.
+
+        `text` serves a raw non-JSON body (e.g. a gateway's HTML error page).
+        """
+        self.routes[(method, path)] = {"status": status, "body": body, "text": text, "handler": handler, "raw": None}
 
     def route_raw(self, path: str, scripts: list[list[tuple[float, bytes]]], hold: float = 5.0, drop: bool = False):
         """Serve GET as text/event-stream; each connection pops the next script.
@@ -66,6 +69,8 @@ class FakeApi:
                     self._send_json(404, {"error": {"code": "not_found", "message": f"no route for {method} {path}"}})
                 elif route["raw"] is not None:
                     self._send_stream(route)
+                elif route["text"] is not None:
+                    self._send_text(route["status"], route["text"])
                 elif route["handler"] is not None:
                     status, body = route["handler"](record)
                     self._send_json(status, body)
@@ -76,6 +81,14 @@ class FakeApi:
                 payload = json.dumps(body).encode()
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def _send_text(self, status: int, text: str):
+                payload = text.encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "text/html")
                 self.send_header("Content-Length", str(len(payload)))
                 self.end_headers()
                 self.wfile.write(payload)

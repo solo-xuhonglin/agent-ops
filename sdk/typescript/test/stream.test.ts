@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FakeApi } from "./fake.ts";
+import { FakeApi, sleep } from "./fake.ts";
 import { NotFoundError, createClient } from "../src/index.ts";
 import type { Event } from "../src/index.ts";
 

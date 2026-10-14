@@ -1,4 +1,5 @@
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Self
 
@@ -98,7 +99,7 @@ class Session:
         view = self._client._http.json("POST", f"/v1/sessions/{self.id}/runs", body)
         return self._client._run(view)
 
-    def stream(self, *, from_run: str | None = None, from_seq: int = 0):
+    def stream(self, *, from_run: str | None = None, from_seq: int = 0) -> Iterator[Event]:
         """Subscribe to the session: state pushes and persistent events.
 
         Duplicates (the subscribe-before-replay race, replays after reconnect)

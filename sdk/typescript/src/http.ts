@@ -1,4 +1,4 @@
-import { fromResponse } from "./errors.ts";
+import { TimeoutError, fromResponse } from "./errors.ts";
 
 interface Frame {
   id: string | null;
@@ -17,18 +17,28 @@ export class Http {
   }
 
   async json(method: string, path: string, body?: unknown): Promise<any> {
-    const response = await fetch(this.baseUrl + path, {
-      method,
-      headers: {
-        Authorization: `Bearer ${this.key}`,
-        ...(body !== undefined && { "Content-Type": "application/json" }),
-      },
-      ...(body !== undefined && { body: JSON.stringify(body) }),
-      signal: AbortSignal.timeout(this.timeoutMs),
-    });
-    const payload: any = await response.json();
+    let response: Response;
+    try {
+      response = await fetch(this.baseUrl + path, {
+        method,
+        headers: {
+          Authorization: `Bearer ${this.key}`,
+          ...(body !== undefined && { "Content-Type": "application/json" }),
+        },
+        ...(body !== undefined && { body: JSON.stringify(body) }),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "TimeoutError") {
+        throw new TimeoutError(`${method} ${path} timed out after ${this.timeoutMs}ms`);
+      }
+      throw error;
+    }
+    const payload: any = await response.json().catch(() => null);
     if (!response.ok) {
-      throw fromResponse(response.status, payload?.error?.code ?? "", payload?.error?.message ?? "");
+      // A proxy in front (nginx) can answer with an HTML error page; the
+      // envelope is best-effort, the status always maps.
+      throw fromResponse(response.status, payload?.error?.code ?? "", payload?.error?.message ?? `${response.status} ${response.statusText}`);
     }
     return payload;
   }
