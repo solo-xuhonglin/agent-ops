@@ -6,6 +6,7 @@ from shared.events import EventType
 from shared.models import AgentDefinition, ExecutionRun, ExecutionSession, ReleaseArtifact, RunLog
 from shared.spec import AgentSpec
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from manager import db
@@ -71,38 +72,49 @@ def submit(agent: AgentDefinition, session_id: UUID, body: RunSubmitBody) -> tup
     spec = latest_spec(agent)
     validate_params(spec, body.params)
 
-    with Session(db.engine) as session, session.begin():
-        row = session.scalar(
-            select(ExecutionSession)
-            .where(ExecutionSession.id == session_id, ExecutionSession.agent_id == agent.id)
-            .with_for_update()
-        )
-        if row is None:
-            raise ApiError(404, "not_found", "no such session")
+    try:
+        with Session(db.engine) as session, session.begin():
+            row = session.scalar(
+                select(ExecutionSession)
+                .where(ExecutionSession.id == session_id, ExecutionSession.agent_id == agent.id)
+                .with_for_update()
+            )
+            if row is None:
+                raise ApiError(404, "not_found", "no such session")
 
-        if body.request_id is not None:
+            if body.request_id is not None:
+                existing = session.scalar(
+                    select(ExecutionRun).where(ExecutionRun.agent_id == agent.id, ExecutionRun.request_id == body.request_id)
+                )
+                if existing is not None:
+                    return build_view(existing), 200
+
+            if row.active_run_id is not None and _is_active(session, row.active_run_id):
+                raise ApiError(409, "conflict", "the session already has an active run")
+
+            run = ExecutionRun(
+                session_id=session_id,
+                agent_id=agent.id,
+                artifact_id=latest_artifact(agent).id,
+                request_id=body.request_id,
+                content=body.content,
+                params=body.params,
+                output_schema=body.output_schema,
+            )
+            session.add(run)
+            session.flush()
+            row.active_run_id = run.id
+            return build_view(run), 201
+    except IntegrityError:
+        # The unique index is the dedup signal: a racing submit on the same
+        # (agent, request_id) already inserted the run — replay it.
+        with Session(db.engine) as session:
             existing = session.scalar(
                 select(ExecutionRun).where(ExecutionRun.agent_id == agent.id, ExecutionRun.request_id == body.request_id)
             )
-            if existing is not None:
-                return build_view(existing), 200
-
-        if row.active_run_id is not None and _is_active(session, row.active_run_id):
-            raise ApiError(409, "conflict", "the session already has an active run")
-
-        run = ExecutionRun(
-            session_id=session_id,
-            agent_id=agent.id,
-            artifact_id=latest_artifact(agent).id,
-            request_id=body.request_id,
-            content=body.content,
-            params=body.params,
-            output_schema=body.output_schema,
-        )
-        session.add(run)
-        session.flush()
-        row.active_run_id = run.id
-        return build_view(run), 201
+        if existing is not None:
+            return build_view(existing), 200
+        raise
 
 
 def get_run(agent: AgentDefinition, run_id: UUID) -> RunView:

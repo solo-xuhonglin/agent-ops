@@ -2,6 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from shared.models import Base, ExecutionRun, ExecutionSession
 from sqlalchemy import text
@@ -27,6 +28,13 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(router)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
+    # Framework-level rejects (bad JSON, missing content, bad path types) speak the contract envelope too.
+    message = "; ".join(f"{error['loc'][-1]}: {error['msg']}" for error in exc.errors())
+    return JSONResponse(status_code=422, content={"error": {"code": "contract", "message": message}})
 
 
 @app.exception_handler(ApiError)

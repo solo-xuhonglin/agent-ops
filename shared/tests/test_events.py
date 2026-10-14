@@ -64,3 +64,10 @@ def test_action_types_require_action_id():
         entry(EventType.llm_result, None)
 
     assert entry(EventType.run_started, None).action_id is None
+
+
+def test_run_finished_payload_carries_status():
+    from shared.events import RunFinishedPayload
+
+    assert RunFinishedPayload(result="done").status == "succeeded"
+    assert RunFinishedPayload(result=None, status="cancelled").status == "cancelled"

@@ -1,5 +1,5 @@
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
@@ -34,6 +34,8 @@ class RunStartedPayload(BaseModel):
 
 
 class RunFinishedPayload(BaseModel):
+    # cancelled is a run_finished too; only the worker writes it.
+    status: Literal["succeeded", "cancelled"] = "succeeded"
     result: Any
 
 

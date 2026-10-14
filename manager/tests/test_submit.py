@@ -110,3 +110,41 @@ def test_submit_missing_session_404(client, auth_headers):
     response = submit(client, auth_headers, str(uuid.uuid4()), content="hi", params={"project_id": "P"})
 
     assert response.status_code == 404
+
+
+def test_framework_422_uses_error_envelope(client, auth_headers):
+    session_id = new_session(client, auth_headers)
+
+    response = submit(client, auth_headers, session_id, params={"project_id": "P"})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "contract"
+
+
+def test_cross_session_replay_returns_same_run(client, auth_headers):
+    first_session = new_session(client, auth_headers)
+    other_session = new_session(client, auth_headers)
+    first = submit(client, auth_headers, first_session, content="a", params={"project_id": "P"}, request_id="job-x")
+
+    replay = submit(client, auth_headers, other_session, content="a", params={"project_id": "P"}, request_id="job-x")
+
+    assert replay.status_code == 200
+    assert replay.json()["run_id"] == first.json()["run_id"]
+
+
+def test_status_terminal_branches(client, auth_headers, db_engine):
+    session_id = new_session(client, auth_headers)
+    failed_run = submit(client, auth_headers, session_id, content="a", params={"project_id": "P"}).json()["run_id"]
+    write_log(db_engine, failed_run, 1, "run_started", {})
+    write_log(db_engine, failed_run, 2, "run_failed", {"error": "boom"})
+    failed = client.get(f"/v1/runs/{failed_run}", headers=auth_headers).json()
+
+    other_session = new_session(client, auth_headers)
+    cancelled_run = submit(client, auth_headers, other_session, content="a", params={"project_id": "P"}).json()["run_id"]
+    write_log(db_engine, cancelled_run, 1, "run_started", {})
+    write_log(db_engine, cancelled_run, 2, "run_finished", {"status": "cancelled"})
+    cancelled = client.get(f"/v1/runs/{cancelled_run}", headers=auth_headers).json()
+
+    assert failed["status"] == "failed"
+    assert failed["error"] == "boom"
+    assert cancelled["status"] == "cancelled"
