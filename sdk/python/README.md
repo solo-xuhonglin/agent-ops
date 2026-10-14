@@ -21,3 +21,5 @@ with create_client(key, base_url="http://127.0.0.1:8080") as client:
 - 异常映射：401 `AuthError`、404 `NotFoundError`、409 `ConflictError`、422 `ContractError`。
 
 测试：`python -m pytest sdk/python/tests`
+
+可运行示例见 [demo/](../../demo/README.md)。

@@ -1,0 +1,31 @@
+"""The conversational pattern (docs/02 §5.1): submit, stream, talk again.
+
+Run from anywhere: AGENT_OPS_KEY is required, AGENT_OPS_BASE_URL defaults
+to the local edge. The sys.path insert is repo-local; installed callers
+import zszc.agentops directly.
+"""
+
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "sdk" / "python" / "src"))
+
+from zszc.agentops import create_client
+
+base_url = os.environ.get("AGENT_OPS_BASE_URL", "http://127.0.0.1:8080")
+
+with create_client(os.environ["AGENT_OPS_KEY"], base_url=base_url) as client:
+    print("input declaration:", [param.key for param in client.get_agent().input])
+
+    session = client.new_session()
+    for content in ["分析这个项目的进度", "重点看延期的那几个"]:
+        run = session.submit(content, params={"project_id": "PRJ-1042"})
+        print(f"\nrun {run.id} — {content}")
+        for event in session.stream():
+            if event.type == "state":
+                continue  # keepalive pushes; current_run rides on them
+            print(f"  {event.type} seq={event.seq}")
+            if event.type == "run_finished":
+                break
+        print("  result:", run.wait().output)

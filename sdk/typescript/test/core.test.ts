@@ -191,6 +191,16 @@ test("wait on a terminal run resolves with one request", async () => {
   });
 });
 
+test("getRun chains into wait — the resume idiom (docs/02 §5.2)", async () => {
+  await withFake(async (fake, baseUrl) => {
+    fake.route("GET", `/v1/runs/${RUN_ID}`, { body: runView({ status: "succeeded", result: "done" }) });
+    const client = createClient("k", { baseUrl, pollIntervalMs: 20 });
+    const handle = await client.getRun(RUN_ID);
+    const result = await handle.wait();
+    assert.equal(result.output, "done");
+  });
+});
+
 test("wait raises RunFailedError, RunCancelledError, TimeoutError", async () => {
   await withFake(async (fake, baseUrl) => {
     serving(fake, [runView({ status: "failed", error: "boom" })]);

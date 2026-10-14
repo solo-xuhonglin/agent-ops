@@ -24,3 +24,5 @@ const result = await run.wait();                    // { output }
 
 测试：`npm test`；构建：`npm run build`（产物在 `dist/`）。
 部署冒烟：`AGENT_OPS_KEY=<key> node scripts/smoke.ts`。
+
+可运行示例见 [demo/](../../demo/README.md)。
