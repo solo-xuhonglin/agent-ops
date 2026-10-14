@@ -2,8 +2,15 @@ name: agent-ops
 
 services:
   manager:
-    build: ../manager
+    build:
+      context: ..
+      dockerfile: manager/Dockerfile
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-agentops}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-agentops}
 
   config:
     build:

@@ -1,17 +1,6 @@
-import asyncio
-import logging
+import uvicorn
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-log = logging.getLogger(__name__)
-
-
-async def main() -> None:
-    log.info("manager started")
-    await asyncio.Event().wait()
-
+from .app import app
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
+    uvicorn.run(app, host="0.0.0.0", port=8000)
