@@ -35,8 +35,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      manager:
+        condition: service_started
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-agentops}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-agentops}
+      # The manager's internal link, by service name inside the network.
+      MANAGER_HOST: manager
+      MANAGER_PORT: "9000"
 
   postgres:
     image: postgres:17
