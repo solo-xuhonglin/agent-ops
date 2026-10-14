@@ -148,7 +148,10 @@ async def _handle_connection(reader: asyncio.StreamReader, writer: asyncio.Strea
         while True:
             type_, data = await read_frame(reader)
             if type_ != "state":
-                continue
+                # One deployment upgrades together: an unknown name on the
+                # internal link is a bug, so the connection drops (docs/06 §1.2).
+                log.error("unknown frame %r on internal link; dropping connection", type_)
+                break
             if "run_id" in data:
                 run_id = data["run_id"]
                 run_conns.add(run_id)

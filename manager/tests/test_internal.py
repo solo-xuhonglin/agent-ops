@@ -52,3 +52,18 @@ def test_heartbeat_keeps_registration(client):
         assert "w-hb" in internal.workers
     finally:
         sock.close()
+
+
+def test_unknown_frame_closes_connection(client):
+    import time
+
+    sock = connect_worker(client)
+    try:
+        sock.sendall(encode("bogus", {}))
+        sock.settimeout(2)
+        # The internal link errors on unknown names (docs/06 §1.2): the
+        # server must drop the connection instead of ignoring the frame.
+        assert sock.recv(1) == b""
+    finally:
+        sock.close()
+        time.sleep(0.2)

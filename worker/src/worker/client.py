@@ -61,8 +61,11 @@ async def run() -> None:
                         asyncio.create_task(_run_one(data))
                     elif type_ == "cancel":
                         log.info("cancel noted for %s", data.get("run_id"))
+                    else:
+                        log.error("unknown frame %r on internal link; dropping it", type_)
+                        raise ConnectionError("unknown frame type")
             finally:
                 beater.cancel()
-        except (ConnectionError, OSError):
-            log.warning("link lost; reconnecting in 2s")
-            await asyncio.sleep(2)
+        except (ConnectionError, OSError, asyncio.IncompleteReadError):
+            log.warning("link lost; reconnecting")
+            await asyncio.sleep(float(os.environ.get("RECONNECT_DELAY", "2")))

@@ -17,6 +17,9 @@ def schema():
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine, tables=[ExecutionRun.__table__, ExecutionSession.__table__, RunLog.__table__])
     yield engine
+    # Leave the baseline the suite started from (run_log only) so the
+    # worker-ownership test still sees exactly its own table.
+    Base.metadata.drop_all(engine, tables=[ExecutionRun.__table__, ExecutionSession.__table__])
 
 
 def make_run(engine, cancel_requested=False, epoch=1):
