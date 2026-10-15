@@ -195,9 +195,42 @@ def execute(engine, dispatch: dict, llm: LlmClient, cancelled: threading.Event):
     resume = max(pending.values(), key=lambda r: r.seq) if pending else None
     iterations_used = sum(1 for row_ in rows if row_.type == EventType.llm_result)
 
+    def rebuild_round_tail(result_row) -> list[dict]:
+        """The round's assistant tool_calls + completed tool messages, from rows."""
+        round_calls = [r for r in rows if r.type == EventType.tool_call and r.seq > result_row.seq]
+        completed = [r for r in rows if r.type == EventType.tool_result and r.seq > result_row.seq]
+        return [
+            assistant_tool_calls(
+                [
+                    {"id": call.action_id, "name": call.payload["tool"], "arguments": call.payload["arguments"]}
+                    for call in round_calls
+                ]
+            ),
+            *[
+                {
+                    "role": "tool",
+                    "tool_call_id": result.action_id,
+                    "content": result.payload.get("result") or f"error: {result.payload.get('error')}",
+                }
+                for result in completed
+            ],
+        ]
+
     if resume is not None and resume.type == EventType.llm_call:
         messages = resume.payload["messages"]
         first_action = resume.action_id
+    elif resume is None and any(r.type == EventType.llm_result for r in rows):
+        # A crash between rounds (no open action): continue from the run's
+        # own last round, or finish a final answer that never got its tail.
+        last_result_row = max((r for r in rows if r.type == EventType.llm_result), key=lambda r: r.seq)
+        if not last_result_row.payload.get("tool_calls"):
+            yield row("run_finished", None, {"status": "succeeded", "result": last_result_row.payload.get("content")})
+            return
+        call_row = max(
+            (r for r in rows if r.type == EventType.llm_call and r.seq < last_result_row.seq), key=lambda r: r.seq
+        )
+        messages = [*call_row.payload["messages"], *rebuild_round_tail(last_result_row)]
+        first_action = None
     else:
         first_action = None
         if resume is not None and resume.type == EventType.tool_call:

@@ -147,3 +147,27 @@ def test_execute_trims_oversized_responses(upstream):
 
     assert outcome["truncated"] is True
     assert len(outcome["result"]) == 16
+
+
+def test_execute_maps_invalid_urls_to_tool_errors():
+    outcome = execute_tool(
+        "r",
+        "a",
+        tool(url_template="http://bad host/{{args.x}}", method="POST", body_template=None)
+        if False
+        else tool(url_template="http://[::bad"),
+        {},
+    )
+
+    assert outcome["ok"] is False
+    assert outcome["error"]
+
+
+def test_execute_trims_by_bytes_not_characters(upstream):
+    upstream.body = "字" * 100  # 300 UTF-8 bytes
+    spec = tool(url_template=upstream.url, response_max_bytes=16)
+
+    outcome = execute_tool("r", "a", spec, {})
+
+    assert outcome["truncated"] is True
+    assert len(outcome["result"].encode()) <= 16

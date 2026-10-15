@@ -11,7 +11,7 @@
 
 ## 1. 路线图
 
-小步迭代：每个单元以可运行的测试收口，顺序即依赖序。已完成：骨架（六容器 Docker 拓扑）、单元 1（config 接库）、单元 2（shared spec 模型与事件词汇表、按写者建表、种子）、单元 3（contract v1 + manager HTTP 面）、单元 4（内部协议 + worker 桩执行）、单元 5（事件推流）、单元 6（两个 SDK 并列收口）—— 阶段 A 完成；单元 7（ReAct 引擎：手写循环、fake LLM、流式增量、日志重建续跑）、单元 8（上下文压缩：阈值触发 LLM 摘要、context_compacted 落库不外发、重建从标记重启）。worker 的模型调用当前只有 fake provider（`LLM_PROVIDER` 默认 `fake`），真实 provider 适配随配置与凭据阶段落地；快照、key、租户等由种子数据落库，配置系统（10–16）建成后由真实流程逐个替换种子。
+小步迭代：每个单元以可运行的测试收口，顺序即依赖序。已完成：骨架（六容器 Docker 拓扑）、单元 1（config 接库）、单元 2（shared spec 模型与事件词汇表、按写者建表、种子）、单元 3（contract v1 + manager HTTP 面）、单元 4（内部协议 + worker 桩执行）、单元 5（事件推流）、单元 6（两个 SDK 并列收口）—— 阶段 A 完成；单元 7（ReAct 引擎：手写循环、fake LLM、流式增量、日志重建续跑）、单元 8（上下文压缩：阈值触发 LLM 摘要、context_compacted 落库不外发、重建从标记重启）、单元 9（HTTP 工具：Tool spec 模型、参数模板、凭据占位（v1 解析器=环境变量 `CREDENTIAL_<名称>`，单元 13 换 secrets 存储）、响应裁剪按字节、幂等键 `run_id:action_id`、工具循环与 max_iterations）—— 阶段 B 完成。worker 的模型调用当前只有 fake provider（`LLM_PROVIDER` 默认 `fake`），真实 provider 适配随配置与凭据阶段落地；快照、key、租户等由种子数据落库，配置系统（10–16）建成后由真实流程逐个替换种子。
 
 ### 阶段 A：SDK 链路
 

@@ -59,7 +59,6 @@ def execute_tool(run_id: str, action_id: str, tool: ToolSpec, arguments: dict) -
     try:
         response = httpx.request(method, url, headers=headers, content=body, timeout=TOOL_TIMEOUT)
         duration_ms = int((time.perf_counter() - started) * 1000)
-        raw = response.text
         if response.status_code >= 400:
             return {
                 "ok": False,
@@ -68,7 +67,7 @@ def execute_tool(run_id: str, action_id: str, tool: ToolSpec, arguments: dict) -
                 "duration_ms": duration_ms,
                 "truncated": False,
             }
-    except httpx.HTTPError as error:
+    except (httpx.HTTPError, httpx.InvalidURL) as error:
         duration_ms = int((time.perf_counter() - started) * 1000)
         return {
             "ok": False,
@@ -78,10 +77,12 @@ def execute_tool(run_id: str, action_id: str, tool: ToolSpec, arguments: dict) -
             "truncated": False,
         }
 
+    # Trim on encoded bytes: the ceiling is the context cost, not the char count.
+    raw = response.content
     truncated = len(raw) > tool.response_max_bytes
     return {
         "ok": True,
-        "result": raw[: tool.response_max_bytes],
+        "result": raw[: tool.response_max_bytes].decode(errors="ignore"),
         "error": None,
         "duration_ms": duration_ms,
         "truncated": truncated,

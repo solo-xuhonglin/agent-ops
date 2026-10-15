@@ -115,7 +115,7 @@ def test_two_iteration_run_with_one_tool(db_engine, upstream):
         "content": '{"items": []}',
     }
 
-    assert llm.calls[0][3] == [dispatch and "fetch"] or llm.calls[0][3][0]["function"]["name"] == "fetch"
+    assert llm.calls[0][3] == [spec_with_tool(upstream.url).tools[0].to_definition()]
 
     with Session(db_engine) as session:
         log_rows = session.scalars(select(RunLog).where(RunLog.run_id == uuid.UUID(dispatch["run_id"]))).all()
@@ -252,3 +252,121 @@ def test_resume_replays_an_open_tool_call_with_the_same_key(db_engine, upstream)
     messages = rows[2]["payload"]["messages"]
     assert messages[-2]["tool_calls"][0]["id"] == "tool-1"
     assert messages[-1]["tool_call_id"] == "tool-1"
+
+
+def test_redispatch_between_rounds_continues_not_restarts(db_engine, upstream):
+    dispatch = make_dispatch(db_engine, spec_with_tool(upstream.url + "/items/{{args.project_id}}"))
+    with Session(db_engine) as session, session.begin():
+        run_id = uuid.UUID(dispatch["run_id"])
+        session.add(
+            RunLog(
+                run_id=run_id,
+                seq=1,
+                action_id=None,
+                type="run_started",
+                payload={"content": "查一下", "params": {"project_id": "P"}},
+            )
+        )
+        session.add(
+            RunLog(
+                run_id=run_id,
+                seq=2,
+                action_id="llm-1",
+                type="llm_call",
+                payload={"messages": [{"role": "user", "content": "查一下"}]},
+            )
+        )
+        session.add(
+            RunLog(
+                run_id=run_id,
+                seq=3,
+                action_id="llm-1",
+                type="llm_result",
+                payload={
+                    "content": "",
+                    "tool_calls": TOOL_CALL,
+                    "input_tokens": 1,
+                    "output_tokens": 1,
+                    "cost": 0.0,
+                    "duration_ms": 1,
+                },
+            )
+        )
+        session.add(
+            RunLog(
+                run_id=run_id,
+                seq=4,
+                action_id="tool-1",
+                type="tool_call",
+                payload={"tool": "fetch", "arguments": {"project_id": "P"}, "idempotency_key": "x:tool-1"},
+            )
+        )
+        session.add(
+            RunLog(
+                run_id=run_id,
+                seq=5,
+                action_id="tool-1",
+                type="tool_result",
+                payload={"result": '{"items": []}', "error": None, "duration_ms": 2, "truncated": False},
+            )
+        )
+    llm = FakeLlm([(["好"], LlmResult(content="续上轮"))])
+
+    items = run_engine(db_engine, dispatch, llm)
+
+    rows = rows_of(items)
+    assert [row["type"] for row in rows] == ["llm_call", "llm_result", "run_finished"]
+    # The continued call carries the completed round, not a fresh history.
+    messages = rows[0]["payload"]["messages"]
+    assert messages[-2]["tool_calls"][0]["id"] == "tool-1"
+    assert messages[-1]["tool_call_id"] == "tool-1"
+    # No second upstream hit: the round is not repeated.
+    assert upstream.received == []
+    assert rows[-1]["payload"] == {"status": "succeeded", "result": "续上轮"}
+
+
+def test_redispatch_after_final_answer_just_finishes(db_engine):
+    dispatch = make_dispatch(db_engine, spec_with_tool("http://dead.test"))
+    with Session(db_engine) as session, session.begin():
+        run_id = uuid.UUID(dispatch["run_id"])
+        session.add(
+            RunLog(
+                run_id=run_id,
+                seq=1,
+                action_id=None,
+                type="run_started",
+                payload={"content": "查一下", "params": {"project_id": "P"}},
+            )
+        )
+        session.add(RunLog(run_id=run_id, seq=2, action_id="llm-1", type="llm_call", payload={"messages": []}))
+        session.add(
+            RunLog(
+                run_id=run_id,
+                seq=3,
+                action_id="llm-1",
+                type="llm_result",
+                payload={
+                    "content": "已经是答案",
+                    "tool_calls": [],
+                    "input_tokens": 1,
+                    "output_tokens": 1,
+                    "cost": 0.0,
+                    "duration_ms": 1,
+                },
+            )
+        )
+    llm = FakeLlm()
+
+    items = run_engine(db_engine, dispatch, llm)
+
+    rows = rows_of(items)
+    assert rows == [
+        {
+            "kind": "row",
+            "type": "run_finished",
+            "seq": 4,
+            "action_id": None,
+            "payload": {"status": "succeeded", "result": "已经是答案"},
+        }
+    ]
+    assert llm.calls == []  # no extra model call to finish a finished answer
