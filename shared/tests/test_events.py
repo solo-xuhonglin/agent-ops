@@ -102,3 +102,28 @@ def test_public_event_passes_other_types_through():
         {"type": "run_finished", "data": {"run_id": "r", "seq": 4, "action_id": None, "status": "succeeded"}},
     ]:
         assert public_event(entry) == entry
+
+
+def test_public_event_strips_compaction_summary():
+    from shared.events import public_event
+
+    entry = {
+        "type": "context_compacted",
+        "data": {
+            "run_id": "r",
+            "seq": 3,
+            "action_id": None,
+            "summary": "整段对话的摘要全文",
+            "before_tokens": 400,
+            "after_tokens": 40,
+            "compacted_messages": 8,
+            "input_tokens": 400,
+            "output_tokens": 40,
+            "cost": 0.0,
+            "duration_ms": 12,
+        },
+    }
+    projected = public_event(entry)
+    assert "summary" not in projected["data"]
+    assert projected["data"]["before_tokens"] == 400
+    assert projected["data"]["compacted_messages"] == 8

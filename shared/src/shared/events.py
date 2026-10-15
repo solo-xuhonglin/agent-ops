@@ -62,9 +62,10 @@ class LogEntry(BaseModel):
 STREAM_EVENT_TYPES = ("message_started", "message_delta")
 
 # Per-type payload fields that must not leave the platform (docs/05 §3.1):
-# llm_call's messages carry the System Prompt; the external event keeps the
-# action reference only.
-_PRIVATE_FIELDS = {"llm_call": {"messages"}}
+# llm_call's messages carry the System Prompt; context_compacted's summary is
+# free text that may embed config content. The external events keep references
+# and lengths only.
+_PRIVATE_FIELDS = {"llm_call": {"messages"}, "context_compacted": {"summary"}}
 
 
 def public_event(entry: dict) -> dict:
