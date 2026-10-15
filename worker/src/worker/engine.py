@@ -325,7 +325,9 @@ def execute(engine, dispatch: dict, llm: LlmClient, cancelled: threading.Event):
         if cancelled.is_set():
             yield row("run_finished", None, {"status": "cancelled", "result": None})
             return
-        yield {"kind": "stream", "type": "text_message_end", "data": {"run_id": run_id_text}}
+        # The end event carries the full authoritative text (docs/02 §6.5,
+        # mirroring OpenAI's response.output_text.done).
+        yield {"kind": "stream", "type": "text_message_end", "data": {"run_id": run_id_text, "text": result.content}}
 
         yield row(
             "llm_result",

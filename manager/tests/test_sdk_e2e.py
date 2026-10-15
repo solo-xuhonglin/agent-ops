@@ -57,9 +57,10 @@ def test_submit_engine_execution_and_stream_back_to_the_sdk(db_engine, monkeypat
                 assert types == [
                     "run_started",
                     "llm_call",
-                    "message",  # delta "你"
-                    "message",  # delta "好"
-                    "message",  # TEXT_MESSAGE_END seals the run's message
+                    "text_message_start",
+                    "text_message_content",  # delta "你"
+                    "text_message_content",  # delta "好"
+                    "text_message_end",  # carries the full authoritative text
                     "llm_result",
                     "run_finished",
                 ]
@@ -73,9 +74,9 @@ def test_submit_engine_execution_and_stream_back_to_the_sdk(db_engine, monkeypat
                 assert again.output == "你好"
 
                 # A fresh subscribe replays the run from its start, with the
-                # llm_call projected (no messages on the wire); the SDK seals
-                # the message from the replayed result (no stream frames ride
-                # a replay).
+                # llm_call projected (no messages on the wire); stream frames
+                # never ride a replay, so the SDK synthesizes the end event
+                # from the replayed result.
                 replayed = client.get_session(session.id).stream()
                 try:
                     replay_events = [next(replayed) for _ in range(5)]
@@ -85,10 +86,10 @@ def test_submit_engine_execution_and_stream_back_to_the_sdk(db_engine, monkeypat
                     "run_started",
                     "llm_call",
                     "llm_result",
-                    "message",
+                    "text_message_end",
                     "run_finished",
                 ]
-                assert replay_events[3].data == {"text": "你好", "delta": "", "done": True}
+                assert replay_events[3].data == {"run_id": run.id, "text": "你好"}
                 assert "messages" not in replay_events[1].data
         finally:
             worker.close()
@@ -203,7 +204,7 @@ def test_tool_round_trips_through_the_stream(db_engine):
                         "llm_result",
                         "run_finished",
                     ]
-                    assert "message" in types  # the tool round still streams its final text
+                    assert "text_message_start" in types and "text_message_end" in types  # the tool round streams its final text
                     assert run.wait().output == "共 1 个项目"
                     assert received[0]["path"] == "/items/P1"
             finally:

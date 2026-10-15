@@ -12,13 +12,15 @@ with create_client(key, base_url="http://127.0.0.1:8080") as client:
 
     events = session.stream()  # 返回即订阅就绪，之后只见事件
     for event in events:
-        ...
+        if event.type == "message":
+            render(event.data["text"], done=event.data["done"])
 
     result = run.wait()  # Result(output)
 ```
 
 - `run.wait(timeout=...)` 单位秒；超时只放弃等待，运行继续，要停就 `run.cancel()`。失败抛 `RunFailed`，取消抛 `RunCancelled`。
 - `session.stream()` 返回即订阅就绪（订阅时的 HTTP 错误在调用处抛出）；内部按 `(run_id, seq)` 去重，state 帧与保活消化在内部，断线与静默自动带游标重连；`from_run` / `from_seq` 可指定续传位置。
+- 消息三段式（`TEXT_MESSAGE_*`）在 SDK 内聚合为 `message` 事件 `{text: 快照, delta: 增量, done}`，每个成功 run 恰有一条 `done=True`（错过流式帧时由 `RUN_FINISHED` 的结果封口）。
 - 异常映射：401 `AuthError`、404 `NotFoundError`、409 `ConflictError`、422 `ContractError`。
 
 测试：`python -m pytest sdk/python/tests`

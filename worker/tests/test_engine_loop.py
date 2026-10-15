@@ -73,6 +73,7 @@ def test_fresh_run_full_sequence(db_engine):
     rows = [item for item in items if item["kind"] == "row"]
     assert [row["seq"] for row in rows] == [1, 2, 3, 4]
     assert rows[1]["action_id"] == rows[2]["action_id"] is not None
+    assert items[5]["data"]["text"] == "你好"  # the end frame carries the full text
 
     messages = rows[1]["payload"]["messages"]
     assert messages[0] == {"role": "system", "content": SPEC.instructions}

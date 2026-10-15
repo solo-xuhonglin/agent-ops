@@ -360,7 +360,7 @@ def test_stream_frames_forwarded_without_cursor(base_url, auth_headers, db_engin
             link.event("llm_call", 2, {"messages": [{"role": "system", "content": "SECRET"}]}, action_id="a1")
             link.stream_frame("text_message_start", {"run_id": run_id})
             link.stream_frame("text_message_content", {"run_id": run_id, "delta": "你好"})
-            link.stream_frame("text_message_end", {"run_id": run_id})
+            link.stream_frame("text_message_end", {"run_id": run_id, "text": "你好"})
             link.event("run_finished", 3, {"status": "succeeded", "result": "你好"}, action_id=None)
             time.sleep(0.3)
             read = []
@@ -393,7 +393,7 @@ def test_stream_frames_forwarded_without_cursor(base_url, auth_headers, db_engin
         assert "messages" not in frames[1][1]["data"]
         assert frames[2] == (None, {"type": "text_message_start", "data": {"run_id": run_id}})
         assert frames[3] == (None, {"type": "text_message_content", "data": {"run_id": run_id, "delta": "你好"}})
-        assert frames[4] == (None, {"type": "text_message_end", "data": {"run_id": run_id}})
+        assert frames[4] == (None, {"type": "text_message_end", "data": {"run_id": run_id, "text": "你好"}})
         # terminal clears the accumulation buffer
         assert run_id not in internal.message_buffers
     finally:

@@ -32,14 +32,14 @@ def client(fake):
 
 
 def test_stream_returns_when_subscription_is_live(fake, client):
-    fake.route_raw(EVENTS, [[(0, state_frame(RUN_ID)), (0, event_frame(1, "RUN_STARTED", content="hi"))]], hold=0.5)
+    fake.route_raw(EVENTS, [[(0, state_frame(RUN_ID)), (0, event_frame(1, "run_started", content="hi"))]], hold=0.5)
     session = client.get_session(SESSION_ID)
 
     stream = session.stream()
     assert len(fake.requests) == 1  # the subscription is on the wire before submit could race it
 
     first = next(stream)
-    assert (first.type, first.seq) == ("RUN_STARTED", 1)
+    assert (first.type, first.seq) == ("run_started", 1)
     stream.close()
 
 
@@ -49,9 +49,9 @@ def test_state_frames_stay_internal(fake, client):
         [
             [
                 (0, state_frame(RUN_ID)),
-                (0, event_frame(1, "RUN_STARTED", content="hi")),
+                (0, event_frame(1, "run_started", content="hi")),
                 (0, state_frame(None)),
-                (0, event_frame(2, "RUN_FINISHED", status="succeeded", result=None)),
+                (0, event_frame(2, "run_finished", status="succeeded", result=None)),
             ]
         ],
         hold=0.5,
@@ -62,15 +62,15 @@ def test_state_frames_stay_internal(fake, client):
     seen = [next(stream) for _ in range(2)]
     stream.close()
 
-    assert [(e.type, e.seq) for e in seen] == [("RUN_STARTED", 1), ("RUN_FINISHED", 2)]
+    assert [(e.type, e.seq) for e in seen] == [("run_started", 1), ("run_finished", 2)]
     assert session.current_run is None  # the digested state frames still drive current_run
 
 
 def test_events_yield_typed_frames_and_suppress_duplicates(fake, client):
-    finished = event_frame(2, "RUN_FINISHED", status="succeeded", result="stub: hi")
+    finished = event_frame(2, "run_finished", status="succeeded", result="stub: hi")
     fake.route_raw(
         EVENTS,
-        [[(0, state_frame(RUN_ID)), (0, event_frame(1, "RUN_STARTED", content="hi")), (0, finished), (0, finished)]],
+        [[(0, state_frame(RUN_ID)), (0, event_frame(1, "run_started", content="hi")), (0, finished), (0, finished)]],
         hold=0.5,
     )
     session = client.get_session(SESSION_ID)
@@ -80,34 +80,34 @@ def test_events_yield_typed_frames_and_suppress_duplicates(fake, client):
     stream.close()
 
     assert [(e.type, e.run_id, e.seq) for e in seen] == [
-        ("RUN_STARTED", RUN_ID, 1),
-        ("message", RUN_ID, None),
-        ("RUN_FINISHED", RUN_ID, 2),
+        ("run_started", RUN_ID, 1),
+        ("text_message_end", RUN_ID, None),
+        ("run_finished", RUN_ID, 2),
     ]
-    assert seen[1].data == {"text": "stub: hi", "delta": "", "done": True}  # sealed by the string result
+    assert seen[1].data == {"run_id": RUN_ID, "text": "stub: hi"}  # synthesized from the string result
     assert seen[2].data["result"] == "stub: hi"
 
 
 def test_frames_split_across_chunks_reassemble(fake, client):
-    whole = event_frame(1, "RUN_STARTED", content="hi")
+    whole = event_frame(1, "run_started", content="hi")
     fake.route_raw(EVENTS, [[(0, state_frame(RUN_ID)), (0, whole[:20]), (0, whole[20:])]], hold=0.5)
     session = client.get_session(SESSION_ID)
 
     stream = session.stream()
     event = next(stream)
 
-    assert (event.type, event.seq) == ("RUN_STARTED", 1)
+    assert (event.type, event.seq) == ("run_started", 1)
     stream.close()
 
 
 def test_reconnect_resumes_from_cursor_and_suppresses_replay(fake, client):
-    third = event_frame(3, "RUN_FINISHED", status="succeeded", result=None)
+    third = event_frame(3, "run_finished", status="succeeded", result=None)
     fake.route_raw(
         EVENTS,
         [
             [
                 (0, state_frame(RUN_ID)),
-                (0, event_frame(1, "RUN_STARTED", content="hi")),
+                (0, event_frame(1, "run_started", content="hi")),
                 (0, event_frame(2, "llm_call", action_id="a1")),
             ],
             [(0, state_frame(RUN_ID)), (0, event_frame(2, "llm_call", action_id="a1")), (0, third)],
@@ -138,7 +138,7 @@ def test_http_error_raises_without_retry(fake, client):
 def test_explicit_cursor_reaches_the_wire(fake, client):
     fake.route_raw(
         EVENTS,
-        [[(0, state_frame(RUN_ID)), (0, event_frame(4, "RUN_FINISHED", status="succeeded", result=None))]],
+        [[(0, state_frame(RUN_ID)), (0, event_frame(4, "run_finished", status="succeeded", result=None))]],
         hold=0.5,
     )
     session = client.get_session(SESSION_ID)
@@ -155,17 +155,17 @@ def text_frame(type_: str, **data) -> bytes:
     return sse({"type": type_, "data": {"run_id": RUN_ID, **data}})
 
 
-def test_text_frames_aggregate_into_message_events(fake, client):
+def test_three_part_message_events_pass_through(fake, client):
     fake.route_raw(
         EVENTS,
         [
             [
                 (0, state_frame(RUN_ID)),
-                (0, text_frame("TEXT_MESSAGE_START")),
-                (0, text_frame("TEXT_MESSAGE_CONTENT", delta="你")),
-                (0, text_frame("TEXT_MESSAGE_CONTENT", delta="好")),
-                (0, text_frame("TEXT_MESSAGE_END")),
-                (0, event_frame(2, "RUN_FINISHED", status="succeeded", result="你好")),
+                (0, text_frame("text_message_start")),
+                (0, text_frame("text_message_content", delta="你")),
+                (0, text_frame("text_message_content", delta="好")),
+                (0, text_frame("text_message_end", text="你好")),
+                (0, event_frame(2, "run_finished", status="succeeded", result="你好")),
             ]
         ],
         hold=0.5,
@@ -173,26 +173,25 @@ def test_text_frames_aggregate_into_message_events(fake, client):
     session = client.get_session(SESSION_ID)
 
     stream = session.stream()
-    seen = [next(stream) for _ in range(4)]
+    seen = [next(stream) for _ in range(5)]
     stream.close()
 
     assert [(e.type, e.seq) for e in seen] == [
-        ("message", None),
-        ("message", None),
-        ("message", None),
-        ("RUN_FINISHED", 2),
+        ("text_message_start", None),
+        ("text_message_content", None),
+        ("text_message_content", None),
+        ("text_message_end", None),
+        ("run_finished", 2),
     ]
-    assert [(e.data["done"], e.data["delta"], e.data["text"]) for e in seen[:3]] == [
-        (False, "你", "你"),
-        (False, "好", "你好"),
-        (True, "", "你好"),
-    ]
+    assert [e.data["delta"] for e in seen[1:3]] == ["你", "好"]
+    assert seen[3].data["text"] == "你好"  # the end event carries the full authoritative text
+    # The real end arrived: run_finished synthesizes nothing after it.
 
 
-def test_run_finish_seals_without_stream_frames(fake, client):
+def test_missed_end_is_synthesized_from_result(fake, client):
     fake.route_raw(
         EVENTS,
-        [[(0, state_frame(RUN_ID)), (0, event_frame(1, "RUN_FINISHED", status="succeeded", result="final"))]],
+        [[(0, state_frame(RUN_ID)), (0, event_frame(1, "run_finished", status="succeeded", result="final"))]],
         hold=0.5,
     )
     session = client.get_session(SESSION_ID)
@@ -202,39 +201,39 @@ def test_run_finish_seals_without_stream_frames(fake, client):
     stream.close()
 
     assert [(e.type, e.data) for e in seen] == [
-        ("message", {"text": "final", "delta": "", "done": True}),
-        ("RUN_FINISHED", seen[1].data),
+        ("text_message_end", {"run_id": RUN_ID, "text": "final"}),
+        ("run_finished", seen[1].data),
     ]
 
 
-def test_partial_stream_sealed_by_result_after_reconnect(fake):
+def test_partial_stream_synthesizes_end_from_result_after_reconnect(fake):
     with create_client("k", base_url=fake.base_url, reconnect_delay=0.05, idle_timeout=0.2) as client:
         fake.route_raw(
             EVENTS,
             [
-                [(0, state_frame(RUN_ID)), (0, text_frame("TEXT_MESSAGE_START")), (0, text_frame("TEXT_MESSAGE_CONTENT", delta="你"))],
-                [(0, state_frame(RUN_ID)), (0, event_frame(1, "RUN_FINISHED", status="succeeded", result="你好"))],
+                [(0, state_frame(RUN_ID)), (0, text_frame("text_message_start")), (0, text_frame("text_message_content", delta="你"))],
+                [(0, state_frame(RUN_ID)), (0, event_frame(1, "run_finished", status="succeeded", result="你好"))],
             ],
             hold=0.5,
         )
         session = client.get_session(SESSION_ID)
 
         stream = session.stream()
-        seen = [next(stream) for _ in range(3)]
+        seen = [next(stream) for _ in range(4)]
         stream.close()
 
-        assert [(e.type, e.data.get("done")) for e in seen] == [
-            ("message", False),
-            ("message", True),  # sealed by the authoritative result, not the partial buffer
-            ("RUN_FINISHED", None),
+        assert [(e.type, e.data.get("delta") or e.data.get("text")) for e in seen] == [
+            ("text_message_start", None),
+            ("text_message_content", "你"),
+            ("text_message_end", "你好"),  # synthesized from the authoritative result, not the partial buffer
+            ("run_finished", None),
         ]
-        assert seen[1].data["text"] == "你好"
 
 
-def test_run_error_does_not_seal_a_message(fake, client):
+def test_run_failed_synthesizes_nothing(fake, client):
     fake.route_raw(
         EVENTS,
-        [[(0, state_frame(RUN_ID)), (0, event_frame(1, "RUN_ERROR", error="boom"))]],
+        [[(0, state_frame(RUN_ID)), (0, event_frame(1, "run_failed", error="boom"))]],
         hold=0.5,
     )
     session = client.get_session(SESSION_ID)
@@ -243,7 +242,7 @@ def test_run_error_does_not_seal_a_message(fake, client):
     event = next(stream)
     stream.close()
 
-    assert (event.type, event.data["error"]) == ("RUN_ERROR", "boom")
+    assert (event.type, event.data["error"]) == ("run_failed", "boom")
 
 
 def test_stream_frames_yield_without_moving_the_cursor(fake, client):
@@ -252,10 +251,10 @@ def test_stream_frames_yield_without_moving_the_cursor(fake, client):
         [
             [
                 (0, state_frame(RUN_ID)),
-                (0, event_frame(1, "RUN_STARTED", content="hi")),
-                (0, text_frame("TEXT_MESSAGE_CONTENT", delta="增量")),
+                (0, event_frame(1, "run_started", content="hi")),
+                (0, text_frame("text_message_content", delta="增量")),
             ],
-            [(0, state_frame(RUN_ID)), (0, event_frame(2, "RUN_FINISHED", status="succeeded"))],
+            [(0, state_frame(RUN_ID)), (0, event_frame(2, "run_finished", status="succeeded"))],
         ],
         drop=True,
     )
@@ -266,10 +265,10 @@ def test_stream_frames_yield_without_moving_the_cursor(fake, client):
     third, fourth = next(stream), next(stream)
     stream.close()
 
-    assert [(e.type, e.seq) for e in seen] == [("RUN_STARTED", 1), ("message", None)]
+    assert [(e.type, e.seq) for e in seen] == [("run_started", 1), ("text_message_content", None)]
     assert seen[1].data["delta"] == "增量"
-    assert (third.type, third.data["done"], third.data["text"]) == ("message", True, "增量")  # sealed by the buffer
-    assert (fourth.type, fourth.seq) == ("RUN_FINISHED", 2)
+    assert (third.type, third.data["text"]) == ("text_message_end", "增量")  # synthesized from the buffer
+    assert (fourth.type, fourth.seq) == ("run_finished", 2)
     # The reconnect carried the persisted cursor only, not the stream frame.
     assert fake.requests[1]["query"] == {"from_run": RUN_ID, "from_seq": "1"}
 
@@ -281,9 +280,9 @@ def test_frames_flowing_never_reconnects(fake):
             [
                 [
                     (0, state_frame(RUN_ID)),
-                    (0.05, event_frame(1, "RUN_STARTED", content="hi")),
+                    (0.05, event_frame(1, "run_started", content="hi")),
                     (0.05, event_frame(2, "llm_call", action_id="a1")),
-                    (0.05, event_frame(3, "RUN_FINISHED", status="succeeded", result=None)),
+                    (0.05, event_frame(3, "run_finished", status="succeeded", result=None)),
                 ]
             ],
             hold=0.5,
@@ -303,8 +302,8 @@ def test_silence_reconnects_with_cursor(fake):
         fake.route_raw(
             EVENTS,
             [
-                [(0, state_frame(RUN_ID)), (0, event_frame(1, "RUN_STARTED", content="hi"))],
-                [(0, state_frame(RUN_ID)), (0, event_frame(2, "RUN_FINISHED", status="succeeded", result=None))],
+                [(0, state_frame(RUN_ID)), (0, event_frame(1, "run_started", content="hi"))],
+                [(0, state_frame(RUN_ID)), (0, event_frame(2, "run_finished", status="succeeded", result=None))],
             ],
             hold=0.5,  # the link stays open but silent after the script
         )
@@ -323,8 +322,8 @@ def test_failed_redial_keeps_retrying_with_cursor(fake, monkeypatch):
         fake.route_raw(
             EVENTS,
             [
-                [(0, state_frame(RUN_ID)), (0, event_frame(1, "RUN_STARTED", content="hi"))],
-                [(0, state_frame(RUN_ID)), (0, event_frame(2, "RUN_FINISHED", status="succeeded", result=None))],
+                [(0, state_frame(RUN_ID)), (0, event_frame(1, "run_started", content="hi"))],
+                [(0, state_frame(RUN_ID)), (0, event_frame(2, "run_finished", status="succeeded", result=None))],
             ],
             hold=0.5,
         )
