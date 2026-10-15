@@ -65,12 +65,13 @@ def session_messages(engine, session_id: str, spec: AgentSpec, exclude_run_id: s
                     last_result = row
                 elif row.type == EventType.context_compacted:
                     marker = row
+            if marker is not None:
+                # The summary replaces everything before it (docs/05 §8.4) —
+                # even when this run never produced a result (cancelled after
+                # compaction); its own exchange rides after it, if any.
+                messages = [_summary_message(marker.payload["summary"])]
             if started is None or last_result is None:
                 continue
-            if marker is not None:
-                # The summary replaces everything before it (docs/05 §8.4);
-                # the compacting run's own exchange rides after it.
-                messages = [_summary_message(marker.payload["summary"])]
             messages.append(
                 {
                     "role": "user",
