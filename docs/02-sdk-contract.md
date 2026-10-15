@@ -174,7 +174,7 @@ Agent 定义上有一份**输入声明**，描述它接受哪些参数：
 client = create_client(key)
 session = client.new_session()
 
-events = session.stream()            # 先订阅：流式帧不重放，订阅活着才看得到增量
+events = session.stream()            # 订阅即建连：返回时已就绪，才不漏流式帧
 session.submit("分析这个项目的进度", params={"project_id": "PRJ-1042"})
 for event in events:                 # 订阅这段对话，空闲时也接着
     ...
@@ -339,6 +339,7 @@ TypeScript 侧方法与参数名一一对应（`snake_case` → `camelCase`）�
 | 版本号 | 平台决定用哪个版本 |
 | 模型与参数 | 同上 |
 | 子运行的内部事件 | 事件流是父运行的序列；子运行细节只在平台侧排障可见 |
+| 保活与状态帧（`state`） | 平台内部机制 —— SDK 消化、兼作心跳，用户侧事件流只有事件 |
 
 ---
 

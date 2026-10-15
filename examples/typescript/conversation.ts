@@ -21,15 +21,16 @@ for (const param of agent.input) {
 }
 
 const session = await client.newSession();
-const events = session.stream();
-await events.next(); // first state push: the subscription is live
+const events = await session.stream(); // resolves once the subscription is live
 
 for (const content of ["分析这个项目的进度", "重点看延期的那几个"]) {
   const run = await session.submit(content, { params: { project_id: "PRJ-1042" } });
   console.log(`\nrun ${run.id.slice(0, 8)} — ${content}`);
 
   // Stream frames carry no seq and are best-effort: render them live,
-  // but the terminal event is the authoritative outcome.
+  // but the terminal event is the authoritative outcome. Manual next():
+  // `for await` + break closes the generator, and this subscription is
+  // reused across turns.
   let streamed = false;
   for (;;) {
     const event = (await events.next()).value!;

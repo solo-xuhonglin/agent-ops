@@ -5,8 +5,6 @@ AGENT_OPS_KEY is required, AGENT_OPS_BASE_URL defaults to the local edge.
 """
 
 import os
-import queue
-import threading
 
 from zszc.agentops import create_client
 
@@ -14,14 +12,6 @@ key = os.environ.get("AGENT_OPS_KEY")
 if key is None:
     raise SystemExit("AGENT_OPS_KEY is required")
 base_url = os.environ.get("AGENT_OPS_BASE_URL", "http://127.0.0.1:8080")
-
-
-def pump(session, events):
-    """Feed the session stream into the queue; the subscription stays open
-    across turns."""
-    for event in session.stream():
-        events.put(event)
-
 
 with create_client(key, base_url=base_url) as client:
     # The input declaration is negotiated: see what the agent wants first
@@ -32,9 +22,7 @@ with create_client(key, base_url=base_url) as client:
         print(f"  {param.key}: {param.type}（{flag}）— {param.description}")
 
     session = client.new_session()
-    events = queue.Queue()
-    threading.Thread(target=pump, args=(session, events), daemon=True).start()
-    events.get(timeout=5)  # first state push: the subscription is live
+    events = session.stream()  # returns once the subscription is live
 
     for content in ["分析这个项目的进度", "重点看延期的那几个"]:
         run = session.submit(content, params={"project_id": "PRJ-1042"})
@@ -43,8 +31,7 @@ with create_client(key, base_url=base_url) as client:
         # Stream frames carry no seq and are best-effort: render them live,
         # but the terminal event is the authoritative outcome.
         streamed = False
-        while True:
-            event = events.get(timeout=30)
+        for event in events:
             if event.type == "message_started":
                 print("  回复: ", end="", flush=True)
             elif event.type == "message_delta":
@@ -59,3 +46,5 @@ with create_client(key, base_url=base_url) as client:
             elif event.type == "run_failed":
                 print(f"\n  运行失败: {event.data['error']}")
                 break
+
+    events.close()

@@ -40,9 +40,7 @@ def test_submit_engine_execution_and_stream_back_to_the_sdk(db_engine, monkeypat
                 run = session.submit("hello sdk", params={"project_id": "P"})
 
                 stream = session.stream()
-                first = next(stream)
-                assert first.type == "state"
-                assert session.current_run is None
+                assert session.current_run is None  # the immediate state push is digested inside
 
                 worker_thread = threading.Thread(target=serve_dispatched_run, args=(str(internal.port), worker))
                 worker_thread.start()
@@ -78,17 +76,16 @@ def test_submit_engine_execution_and_stream_back_to_the_sdk(db_engine, monkeypat
                 # llm_call projected (no messages on the wire).
                 replayed = client.get_session(session.id).stream()
                 try:
-                    replay_events = [next(replayed) for _ in range(5)]
+                    replay_events = [next(replayed) for _ in range(4)]
                 finally:
                     replayed.close()
                 assert [e.type for e in replay_events] == [
-                    "state",
                     "run_started",
                     "llm_call",
                     "llm_result",
                     "run_finished",
                 ]
-                assert "messages" not in replay_events[2].data
+                assert "messages" not in replay_events[1].data
         finally:
             worker.close()
 
@@ -157,7 +154,6 @@ def test_tool_round_trips_through_the_stream(db_engine):
                     run = session_handle.submit("查项目", params={"project_id": "P1"})
 
                     stream = session_handle.stream()
-                    next(stream)  # state
 
                     def worker_side():
                         _type, dispatch = worker.read()

@@ -15,8 +15,9 @@ const session = await client.newSession();
 const run = await session.submit("hello from the typescript sdk", { params: { project_id: "P" } });
 
 const types: string[] = [];
-for await (const event of session.stream()) {
-  if (event.type !== "state") types.push(event.type);
+const events = await session.stream();
+for await (const event of events) {
+  types.push(event.type);
   if (event.type === "run_finished") break;
 }
 console.log("events:", types.join(" -> "));
