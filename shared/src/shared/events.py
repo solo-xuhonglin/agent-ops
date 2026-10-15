@@ -61,10 +61,13 @@ class LogEntry(BaseModel):
 # type, never seq'd (docs/05 §3.3). AG-UI vocabulary.
 STREAM_EVENT_TYPES = ("TEXT_MESSAGE_START", "TEXT_MESSAGE_CONTENT", "TEXT_MESSAGE_END")
 
-# External names for the UI-path events; log types stay internal (docs/02
-# §6.5: AG-UI vocabulary where AG-UI has a counterpart, platform names
-# otherwise).
+# External names for the UI-path events; log types stay internal on the wire
+# (docs/06 §1.2) — the manager projects them at its SSE edge.
 _EXTERNAL_EVENT_NAMES = {"run_started": "RUN_STARTED", "run_finished": "RUN_FINISHED", "run_failed": "RUN_ERROR"}
+
+
+def external_event_name(type_: str) -> str:
+    return _EXTERNAL_EVENT_NAMES.get(type_, type_)
 
 # Per-type payload fields that must not leave the platform (docs/05 §3.1):
 # llm_call's messages carry the System Prompt; context_compacted's summary is

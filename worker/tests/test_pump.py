@@ -81,14 +81,14 @@ def test_pump_persists_rows_and_wires_projected_frames(db_engine):
     names = [(type_, data.get("seq")) for type_, data in db_engine["frames"]]
     assert names == [
         ("state", None),
-        ("RUN_STARTED", 1),
+        ("run_started", 1),
         ("llm_call", 2),
         ("TEXT_MESSAGE_START", None),
         ("TEXT_MESSAGE_CONTENT", None),
         ("TEXT_MESSAGE_CONTENT", None),
         ("TEXT_MESSAGE_END", None),
         ("llm_result", 3),
-        ("RUN_FINISHED", 4),
+        ("run_finished", 4),
     ]
     llm_call_frame = db_engine["frames"][2][1]
     assert "messages" not in llm_call_frame

@@ -61,8 +61,9 @@ def _pump(dispatch: dict, llm: LlmClient) -> None:
                 "type": item["type"],
                 "data": {"run_id": run_id, "seq": item["seq"], "action_id": item["action_id"], **item["payload"]},
             }
-            projected = public_event(entry)
-            sock.sendall(encode(projected["type"], projected["data"]))
+            # The wire carries log types; the manager projects external names
+            # at its SSE edge (docs/06 §1.2).
+            sock.sendall(encode(item["type"], public_event(entry)["data"]))
     except Exception:
         # The run stays open; the sweep re-dispatches it (at-least-once).
         log.exception("run path failed for %s", run_id)

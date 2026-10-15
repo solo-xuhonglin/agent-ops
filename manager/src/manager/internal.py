@@ -3,7 +3,7 @@ import logging
 import os
 import time
 
-from shared.events import STREAM_EVENT_TYPES, EventType
+from shared.events import STREAM_EVENT_TYPES, EventType, external_event_name
 from shared.models import ExecutionRun, ExecutionSession, ReleaseArtifact
 from shared.wire import encode, read_frame
 from sqlalchemy import select, update
@@ -210,17 +210,20 @@ async def _handle_connection(reader: asyncio.StreamReader, writer: asyncio.Strea
                         message_buffers.pop(data["run_id"], None)
                     else:
                         session_runs[session_id] = {"run_id": data["run_id"], "seq": data.get("seq")}
-                    _forward(session_id, {"type": type_, "data": data})
+                    # The wire carries log types; subscribers get the external name.
+                    _forward(session_id, {"type": external_event_name(type_), "data": data})
             elif type_ in STREAM_EVENT_TYPES:
                 session_id = run_session.get(data.get("run_id"))
                 if session_id is None:
                     log.error("stream frame for undispatched run %r; dropping", data.get("run_id"))
                 else:
                     run = data["run_id"]
-                    if type_ == "message_started":
+                    if type_ == "TEXT_MESSAGE_START":
                         message_buffers[run] = ""
-                    else:
-                        message_buffers[run] = message_buffers.get(run, "") + data.get("text", "")
+                    elif type_ == "TEXT_MESSAGE_CONTENT":
+                        message_buffers[run] = message_buffers.get(run, "") + data.get("delta", "")
+                    # TEXT_MESSAGE_END forwards as-is; the buffer stays until
+                    # the run's terminal event pops it.
                     _forward(session_id, {"type": type_, "data": data})
             else:
                 # One deployment upgrades together: an unknown name on the

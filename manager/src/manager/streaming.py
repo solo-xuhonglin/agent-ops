@@ -40,9 +40,9 @@ async def stream(session_id: UUID, from_run: UUID | None, from_seq: int) -> Asyn
         if active is not None:
             buffered = internal.message_buffers.get(active["run_id"])
             if buffered is not None:
-                yield _frame({"type": "message_started", "data": {"run_id": active["run_id"]}})
+                yield _frame({"type": "TEXT_MESSAGE_START", "data": {"run_id": active["run_id"]}})
                 if buffered:
-                    yield _frame({"type": "message_delta", "data": {"run_id": active["run_id"], "text": buffered}})
+                    yield _frame({"type": "TEXT_MESSAGE_CONTENT", "data": {"run_id": active["run_id"], "delta": buffered}})
         while True:
             try:
                 item = await asyncio.wait_for(queue.get(), timeout=interval)
