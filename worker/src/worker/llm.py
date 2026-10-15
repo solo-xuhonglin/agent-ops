@@ -43,7 +43,7 @@ def _last_user_text(messages: list[dict]) -> str:
 
 class FakeLlm:
     """Scripted provider: one reply per call; the default reply echoes the
-    last user message so unscripted runs (deploy, demos) still stream."""
+    last user message so unscripted runs (deploy, examples) still stream."""
 
     def __init__(self, replies: list[tuple[list[str], LlmResult]] | None = None):
         self.replies = list(replies) if replies is not None else None

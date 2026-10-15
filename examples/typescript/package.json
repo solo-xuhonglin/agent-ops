@@ -1,5 +1,5 @@
 {
-  "name": "@zszc/agentops-demo",
+  "name": "@zszc/agentops-examples",
   "private": true,
   "type": "module",
   "dependencies": {

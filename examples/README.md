@@ -6,21 +6,21 @@
 
 | 示例 | 用法（[02-sdk-contract.md](../docs/02-sdk-contract.md) §5） |
 |---|---|
-| `python/conversation.py` | 对话式：流式订阅 + 多轮 |
-| `python/task.py` | 任务式：`request_id` 幂等 + 稍后取结果 |
+| `python/conversation.py` | 对话式：输入声明协商 + 流式订阅 + 多轮 |
+| `python/task.py` | 任务式：`request_id` 幂等 + 凭 run id 异地取结果 |
 | `typescript/conversation.ts` | 对话式（TS 同构） |
 | `typescript/task.ts` | 任务式（TS 同构） |
 
 ## 在本仓库内运行
 
-SDK 尚未发布，用路径代替安装：
+示例自身不需要安装——对外只有 SDK 会被安装（`pip install zszc.agentops` / `npm install @zszc/agentops`）。SDK 尚未发布，在仓库里跑示例用路径做替身：
 
 ```bash
 # Python：PYTHONPATH 代替 pip install
-PYTHONPATH=sdk/python/src .venv/Scripts/python demo/python/conversation.py
+PYTHONPATH=sdk/python/src .venv/Scripts/python examples/python/conversation.py
 
-# TypeScript：file: 链接代替 npm install（demo/typescript/package.json 已声明）
-cd sdk/typescript && npm run build && cd ../../demo/typescript && npm install
+# TypeScript：examples/typescript/package.json 里的 file: 链接代替 npm install
+cd sdk/typescript && npm run build && cd ../../examples/typescript && npm install
 node conversation.ts
 ```
 

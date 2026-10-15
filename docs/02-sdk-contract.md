@@ -174,8 +174,9 @@ Agent 定义上有一份**输入声明**，描述它接受哪些参数：
 client = create_client(key)
 session = client.new_session()
 
+events = session.stream()            # 先订阅：流式帧不重放，订阅活着才看得到增量
 session.submit("分析这个项目的进度", params={"project_id": "PRJ-1042"})
-for event in session.stream():       # 订阅这段对话，空闲时也接着
+for event in events:                 # 订阅这段对话，空闲时也接着
     ...
 
 session.submit("重点看延期的那几个")
