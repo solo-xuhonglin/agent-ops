@@ -1,4 +1,5 @@
 import time
+from collections import deque
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Self
@@ -85,12 +86,20 @@ class EventStream:
     Built with the subscription already live: the manager's immediate state
     push has been consumed. State frames, silence detection, and reconnects
     stay internal; duplicates are suppressed by a per-run seq watermark.
+    TEXT_MESSAGE_* frames are aggregated into `message` events
+    {text: snapshot, delta: chunk, done} — exactly one done=true per
+    successful run: sealed by TEXT_MESSAGE_END, or by RUN_FINISHED's
+    authoritative result when the frames were missed (stream frames are
+    not replayed).
     """
 
     def __init__(self, session: "Session", cursor: tuple[str, int] | None):
         self._session = session
         self._cursor = cursor
         self._watermark: dict[str, int] = {}
+        self._buffers: dict[str, str] = {}
+        self._sealed: set[str] = set()
+        self._pending: deque[Event] = deque()
         self._frames = self._open()
 
     def _open(self) -> Iterator[tuple[str | None, dict]]:
@@ -107,8 +116,24 @@ class EventStream:
     def __iter__(self) -> "EventStream":
         return self
 
+    def _aggregate(self, type_: str, data: dict) -> Event | None:
+        """Fold one TEXT_MESSAGE_* frame into the message stream; None skips."""
+        run = data["run_id"]
+        if type_ == "TEXT_MESSAGE_START":
+            self._buffers[run] = ""
+            return None
+        if type_ == "TEXT_MESSAGE_CONTENT":
+            chunk = data.get("delta", "")
+            self._buffers[run] = self._buffers.setdefault(run, "") + chunk
+            return Event("message", run, None, {"text": self._buffers[run], "delta": chunk, "done": False})
+        text = self._buffers.pop(run, "")  # TEXT_MESSAGE_END
+        self._sealed.add(run)
+        return Event("message", run, None, {"text": text, "delta": "", "done": True})
+
     def __next__(self) -> Event:
         while True:
+            if self._pending:
+                return self._pending.popleft()
             try:
                 payload = next(self._frames)[1]
             except (StopIteration, httpx.TransportError):
@@ -120,18 +145,37 @@ class EventStream:
                 except httpx.TransportError:  # redial failed: transient, keep the cursor and retry
                     continue
                 continue
-            if payload["type"] == "state":
+            type_ = payload["type"]
+            if type_ == "state":
                 self._session._adopt_state(payload["data"])
                 continue
             data = payload["data"]
+            if type_ in ("TEXT_MESSAGE_START", "TEXT_MESSAGE_CONTENT", "TEXT_MESSAGE_END"):
+                aggregated = self._aggregate(type_, data)
+                if aggregated is not None:
+                    return aggregated
+                continue
             if "seq" not in data:
                 # Stream frames apply directly: no watermark, no cursor.
-                return Event(payload["type"], data.get("run_id"), None, data)
+                return Event(type_, data.get("run_id"), None, data)
             if data["seq"] <= self._watermark.get(data["run_id"], 0):
                 continue
             self._watermark[data["run_id"]] = data["seq"]
             self._cursor = (data["run_id"], data["seq"])
-            return Event(payload["type"], data["run_id"], data["seq"], data)
+            if type_ == "RUN_FINISHED" and data["run_id"] not in self._sealed:
+                run = data["run_id"]
+                result = data.get("result")
+                buffered = self._buffers.pop(run, "")
+                # A string result is the authoritative text; structured
+                # results (output_schema) leave the text to what streamed.
+                # Nothing streamed and no text result: no message to seal.
+                if isinstance(result, str) or buffered:
+                    text = result if isinstance(result, str) else buffered
+                    self._sealed.add(run)
+                    self._pending.append(Event("message", run, None, {"text": text, "delta": "", "done": True}))
+                    self._pending.append(Event(type_, data["run_id"], data["seq"], data))
+                    continue
+            return Event(type_, data["run_id"], data["seq"], data)
 
     def close(self) -> None:
         self._frames.close()

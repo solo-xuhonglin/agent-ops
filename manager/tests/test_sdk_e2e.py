@@ -57,10 +57,9 @@ def test_submit_engine_execution_and_stream_back_to_the_sdk(db_engine, monkeypat
                 assert types == [
                     "RUN_STARTED",
                     "llm_call",
-                    "TEXT_MESSAGE_START",
-                    "TEXT_MESSAGE_CONTENT",
-                    "TEXT_MESSAGE_CONTENT",
-                    "TEXT_MESSAGE_END",
+                    "message",  # delta "你"
+                    "message",  # delta "好"
+                    "message",  # TEXT_MESSAGE_END seals the run's message
                     "llm_result",
                     "RUN_FINISHED",
                 ]
@@ -74,18 +73,22 @@ def test_submit_engine_execution_and_stream_back_to_the_sdk(db_engine, monkeypat
                 assert again.output == "你好"
 
                 # A fresh subscribe replays the run from its start, with the
-                # llm_call projected (no messages on the wire).
+                # llm_call projected (no messages on the wire); the SDK seals
+                # the message from the replayed result (no stream frames ride
+                # a replay).
                 replayed = client.get_session(session.id).stream()
                 try:
-                    replay_events = [next(replayed) for _ in range(4)]
+                    replay_events = [next(replayed) for _ in range(5)]
                 finally:
                     replayed.close()
                 assert [e.type for e in replay_events] == [
                     "RUN_STARTED",
                     "llm_call",
                     "llm_result",
+                    "message",
                     "RUN_FINISHED",
                 ]
+                assert replay_events[3].data == {"text": "你好", "delta": "", "done": True}
                 assert "messages" not in replay_events[1].data
         finally:
             worker.close()
@@ -200,7 +203,7 @@ def test_tool_round_trips_through_the_stream(db_engine):
                         "llm_result",
                         "RUN_FINISHED",
                     ]
-                    assert "TEXT_MESSAGE_START" in types and "TEXT_MESSAGE_END" in types
+                    assert "message" in types  # the tool round still streams its final text
                     assert run.wait().output == "共 1 个项目"
                     assert received[0]["path"] == "/items/P1"
             finally:
