@@ -63,9 +63,10 @@ def test_fresh_run_full_sequence(db_engine):
     assert kinds == [
         ("row", "run_started"),
         ("row", "llm_call"),
-        ("stream", "message_started"),
-        ("stream", "message_delta"),
-        ("stream", "message_delta"),
+        ("stream", "TEXT_MESSAGE_START"),
+        ("stream", "TEXT_MESSAGE_CONTENT"),
+        ("stream", "TEXT_MESSAGE_CONTENT"),
+        ("stream", "TEXT_MESSAGE_END"),
         ("row", "llm_result"),
         ("row", "run_finished"),
     ]
@@ -77,8 +78,8 @@ def test_fresh_run_full_sequence(db_engine):
     assert messages[0] == {"role": "system", "content": SPEC.instructions}
     assert messages[-1] == {"role": "user", "content": render_user_message("hello", {"project_id": "P"}, SPEC)}
 
-    deltas = [item for item in items if item["type"] == "message_delta"]
-    assert [delta["data"]["text"] for delta in deltas] == ["你", "好"]
+    deltas = [item for item in items if item["type"] == "TEXT_MESSAGE_CONTENT"]
+    assert [delta["data"]["delta"] for delta in deltas] == ["你", "好"]
 
     result_payload = rows[2]["payload"]
     assert result_payload["content"] == "你好"
@@ -122,8 +123,8 @@ def test_cancel_mid_stream_aborts_without_llm_result(db_engine):
     assert [(item["kind"], item["type"]) for item in items] == [
         ("row", "run_started"),
         ("row", "llm_call"),
-        ("stream", "message_started"),
-        ("stream", "message_delta"),
+        ("stream", "TEXT_MESSAGE_START"),
+        ("stream", "TEXT_MESSAGE_CONTENT"),
         ("row", "run_finished"),
     ]
     assert items[-1]["payload"] == {"status": "cancelled", "result": None}

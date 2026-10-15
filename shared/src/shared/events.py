@@ -58,8 +58,13 @@ class LogEntry(BaseModel):
 
 
 # Stream-only event names: they ride the wire and SSE but are never a log
-# type, never seq'd (docs/05 §3.3).
-STREAM_EVENT_TYPES = ("message_started", "message_delta")
+# type, never seq'd (docs/05 §3.3). AG-UI vocabulary.
+STREAM_EVENT_TYPES = ("TEXT_MESSAGE_START", "TEXT_MESSAGE_CONTENT", "TEXT_MESSAGE_END")
+
+# External names for the UI-path events; log types stay internal (docs/02
+# §6.5: AG-UI vocabulary where AG-UI has a counterpart, platform names
+# otherwise).
+_EXTERNAL_EVENT_NAMES = {"run_started": "RUN_STARTED", "run_finished": "RUN_FINISHED", "run_failed": "RUN_ERROR"}
 
 # Per-type payload fields that must not leave the platform (docs/05 §3.1):
 # llm_call's messages carry the System Prompt; context_compacted's summary is
@@ -71,10 +76,8 @@ _PRIVATE_FIELDS = {"llm_call": {"messages"}, "context_compacted": {"summary"}}
 def public_event(entry: dict) -> dict:
     """Project a full log entry to the external event shape."""
     private = _PRIVATE_FIELDS.get(entry["type"], set())
-    if not private:
-        return entry
-    data = {key: value for key, value in entry["data"].items() if key not in private}
-    return {"type": entry["type"], "data": data}
+    data = {key: value for key, value in entry["data"].items() if key not in private} if private else entry["data"]
+    return {"type": _EXTERNAL_EVENT_NAMES.get(entry["type"], entry["type"]), "data": data}
 
 
 def open_actions(entries: list[LogEntry]) -> set[str]:

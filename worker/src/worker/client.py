@@ -61,7 +61,8 @@ def _pump(dispatch: dict, llm: LlmClient) -> None:
                 "type": item["type"],
                 "data": {"run_id": run_id, "seq": item["seq"], "action_id": item["action_id"], **item["payload"]},
             }
-            sock.sendall(encode(item["type"], public_event(entry)["data"]))
+            projected = public_event(entry)
+            sock.sendall(encode(projected["type"], projected["data"]))
     except Exception:
         # The run stays open; the sweep re-dispatches it (at-least-once).
         log.exception("run path failed for %s", run_id)

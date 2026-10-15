@@ -81,18 +81,19 @@ def test_pump_persists_rows_and_wires_projected_frames(db_engine):
     names = [(type_, data.get("seq")) for type_, data in db_engine["frames"]]
     assert names == [
         ("state", None),
-        ("run_started", 1),
+        ("RUN_STARTED", 1),
         ("llm_call", 2),
-        ("message_started", None),
-        ("message_delta", None),
-        ("message_delta", None),
+        ("TEXT_MESSAGE_START", None),
+        ("TEXT_MESSAGE_CONTENT", None),
+        ("TEXT_MESSAGE_CONTENT", None),
+        ("TEXT_MESSAGE_END", None),
         ("llm_result", 3),
-        ("run_finished", 4),
+        ("RUN_FINISHED", 4),
     ]
     llm_call_frame = db_engine["frames"][2][1]
     assert "messages" not in llm_call_frame
-    assert llm_call_frame["action_id"] == db_engine["frames"][6][1]["action_id"]
-    assert [data["text"] for type_, data in db_engine["frames"] if type_ == "message_delta"] == ["回", "答"]
+    assert llm_call_frame["action_id"] == db_engine["frames"][7][1]["action_id"]
+    assert [data["delta"] for type_, data in db_engine["frames"] if type_ == "TEXT_MESSAGE_CONTENT"] == ["回", "答"]
 
     with Session(db_engine["engine"]) as session:
         rows = session.scalars(

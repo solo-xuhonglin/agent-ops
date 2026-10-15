@@ -313,18 +313,19 @@ def execute(engine, dispatch: dict, llm: LlmClient, cancelled: threading.Event):
         yield row("llm_call", action_id, {"messages": messages})
 
         started = time.perf_counter()
-        yield {"kind": "stream", "type": "message_started", "data": {"run_id": run_id_text}}
+        yield {"kind": "stream", "type": "TEXT_MESSAGE_START", "data": {"run_id": run_id_text}}
         result = LlmResult(content="")
         for event in llm.stream(messages, tools=tool_defs, model_id=spec.model_id, model_params=spec.model_params):
             if cancelled.is_set():
                 break
             if isinstance(event, LlmDelta):
-                yield {"kind": "stream", "type": "message_delta", "data": {"run_id": run_id_text, "text": event.text}}
+                yield {"kind": "stream", "type": "TEXT_MESSAGE_CONTENT", "data": {"run_id": run_id_text, "delta": event.text}}
             else:
                 result = event.result
         if cancelled.is_set():
             yield row("run_finished", None, {"status": "cancelled", "result": None})
             return
+        yield {"kind": "stream", "type": "TEXT_MESSAGE_END", "data": {"run_id": run_id_text}}
 
         yield row(
             "llm_result",
