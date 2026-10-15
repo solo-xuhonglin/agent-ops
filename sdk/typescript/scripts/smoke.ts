@@ -23,8 +23,8 @@ console.log("events:", types.join(" -> "));
 
 const result = await run.wait({ timeoutMs: 30_000 });
 console.log("result:", result.output);
-if (result.output !== "stub: hello from the typescript sdk") {
-  console.error("unexpected stub output");
+if (typeof result.output !== "string" || !result.output.startsWith("fake: ") || !result.output.includes("hello from the typescript sdk")) {
+  console.error("unexpected engine output");
   process.exit(1);
 }
 console.log("smoke ok");

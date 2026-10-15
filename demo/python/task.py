@@ -5,11 +5,14 @@ AGENT_OPS_KEY is required, AGENT_OPS_BASE_URL defaults to the local edge.
 """
 
 import os
+import time
 
 from zszc.agentops import create_client
 
 base_url = os.environ.get("AGENT_OPS_BASE_URL", "http://127.0.0.1:8080")
-request_id = "demo-job-2026-10-14"
+request_id = (
+    f"demo-job-{time.strftime('%Y%m%d-%H%M%S')}"  # 每次执行一个新 id（docs/02 §6.1：区分维度必须编进 request_id）
+)
 output_schema = {
     "type": "object",
     "properties": {"summary": {"type": "string"}},

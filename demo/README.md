@@ -24,4 +24,4 @@ cd sdk/typescript && npm run build && cd ../../demo/typescript && npm install
 node conversation.ts
 ```
 
-当前为桩执行，结果形如 `stub: <输入>`。
+当前为 fake LLM（部署默认 `LLM_PROVIDER=fake`，回显输入并分段流式），结果形如 `fake: <输入>`。

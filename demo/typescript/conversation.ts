@@ -17,9 +17,12 @@ for (const content of ["分析这个项目的进度", "重点看延期的那几�
   const run = await session.submit(content, { params: { project_id: "PRJ-1042" } });
   console.log(`\nrun ${run.id} — ${content}`);
   for await (const event of session.stream()) {
-    if (event.type === "state") continue; // keepalive pushes; currentRun rides on them
-    console.log(`  ${event.type} seq=${event.seq}`);
-    if (event.type === "run_finished") break;
+    if (event.type === "message_started") process.stdout.write("  生成中: ");
+    else if (event.type === "message_delta") process.stdout.write(event.data.text);
+    else if (event.type === "run_finished") {
+      process.stdout.write("\n");
+      break;
+    }
   }
-  console.log("  result:", (await run.wait()).output);
+  await run.wait();
 }

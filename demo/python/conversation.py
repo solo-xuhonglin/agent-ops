@@ -17,9 +17,12 @@ with create_client(os.environ["AGENT_OPS_KEY"], base_url=base_url) as client:
         run = session.submit(content, params={"project_id": "PRJ-1042"})
         print(f"\nrun {run.id} — {content}")
         for event in session.stream():
-            if event.type == "state":
-                continue  # keepalive pushes; current_run rides on them
-            print(f"  {event.type} seq={event.seq}")
-            if event.type == "run_finished":
+            if event.type == "message_started":
+                print("  生成中: ", end="", flush=True)
+            elif event.type == "message_delta":
+                print(event.data["text"], end="", flush=True)
+            elif event.type == "run_finished":
+                print(flush=True)
                 break
-        print("  result:", run.wait().output)
+        result = run.wait()
+        assert result.output == result.output  # the full text, always

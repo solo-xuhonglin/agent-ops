@@ -10,7 +10,7 @@ if (key === undefined) {
   process.exit(1);
 }
 
-const requestId = "demo-job-2026-10-14";
+const requestId = `demo-job-${new Date().toISOString()}`; // 每次执行一个新 id（docs/02 §6.1：区分维度必须编进 request_id）
 const outputSchema = {
   type: "object",
   properties: { summary: { type: "string" } },
