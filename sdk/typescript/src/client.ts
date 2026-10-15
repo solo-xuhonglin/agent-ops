@@ -1,5 +1,5 @@
 import { RunCancelledError, RunFailedError, TimeoutError } from "./errors.ts";
-import { Http } from "./http.ts";
+import { Http, LinkDroppedError, type FrameSource } from "./http.ts";
 
 export interface InputParam {
   key: string;
@@ -14,8 +14,8 @@ export interface AgentView {
 }
 
 export interface Event {
-  /** "state" for state pushes; otherwise the event type. */
   type: string;
+  /** Null on stream frames. */
   runId: string | null;
   seq: number | null;
   data: any;
@@ -38,6 +38,7 @@ export interface ClientOptions {
   baseUrl: string;
   pollIntervalMs?: number;
   reconnectDelayMs?: number;
+  idleTimeoutMs?: number;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -48,11 +49,13 @@ export class Client {
   readonly http: Http;
   readonly pollIntervalMs: number;
   readonly reconnectDelayMs: number;
+  readonly idleTimeoutMs: number;
 
   constructor(key: string, options: ClientOptions) {
     this.http = new Http(options.baseUrl, key);
     this.pollIntervalMs = options.pollIntervalMs ?? 500;
     this.reconnectDelayMs = options.reconnectDelayMs ?? 1000;
+    this.idleTimeoutMs = options.idleTimeoutMs ?? 30_000;
   }
 
   async getAgent(): Promise<AgentView> {
@@ -100,28 +103,63 @@ export class Session {
     return this.client.run(view);
   }
 
-  /** Subscribe to the session: state pushes and persistent events.
-   *
-   * Duplicates (the subscribe-before-replay race, replays after reconnect)
-   * are suppressed by a per-run seq watermark; a dropped link reconnects
-   * with the last delivered cursor. HTTP errors raise, no retry.
+  private adoptState(data: any): void {
+    const runId: string | null = data.run ?? null;
+    this.currentRun = runId === null ? null : new Run(this.client, runId, this.id);
+  }
+
+  /** Subscribe to the session and resolve to an events-only generator.
+
+   * Resolves once the subscription is live, so a submit right after cannot
+   * miss stream frames. State frames, silence detection, and reconnects
+   * stay internal; duplicates are suppressed by a per-run seq watermark.
+   * HTTP errors raise, no retry.
    */
-  async *stream(options: { fromRun?: string; fromSeq?: number } = {}): AsyncGenerator<Event> {
-    let cursor: [string, number] | null = options.fromRun !== undefined ? [options.fromRun, options.fromSeq ?? 0] : null;
-    const watermark = new Map<string, number>();
-    for (;;) {
+  async stream(options: { fromRun?: string; fromSeq?: number } = {}): Promise<AsyncGenerator<Event>> {
+    const path = `/v1/sessions/${this.id}/events`;
+    const connect = async (cursor: [string, number] | null): Promise<FrameSource> => {
       const params: Record<string, string> = {};
       if (cursor !== null) {
         params.from_run = cursor[0];
         params.from_seq = String(cursor[1]);
       }
+      const link = await this.client.http.openEvents(path, params, this.client.idleTimeoutMs);
       try {
-        for await (const frame of this.client.http.events(`/v1/sessions/${this.id}/events`, params)) {
-          const payload = frame.payload as { type: string; data: any };
+        const first = (await link.next()).payload as { type: string; data: any };
+        this.adoptState(first.data); // first frame is always the state push
+        return link;
+      } catch (error) {
+        link.close();
+        throw error;
+      }
+    };
+
+    let cursor: [string, number] | null = options.fromRun !== undefined ? [options.fromRun, options.fromSeq ?? 0] : null;
+    let link = await connect(cursor);
+    const watermark = new Map<string, number>();
+    const session = this;
+
+    return (async function* (): AsyncGenerator<Event> {
+      try {
+        for (;;) {
+          let payload: { type: string; data: any };
+          try {
+            payload = (await link.next()).payload as { type: string; data: any };
+          } catch (error) {
+            // A dropped or silent link reconnects with the cursor; undici
+            // surfaces network-level failures as TypeError ("fetch failed" /
+            // "terminated"). Everything else (malformed payloads, bugs)
+            // propagates, mirroring the Python SDK.
+            if (!(error instanceof LinkDroppedError || (error instanceof TypeError && /fetch failed|terminated/.test(error.message)))) {
+              throw error;
+            }
+            link.close();
+            await sleep(session.client.reconnectDelayMs);
+            link = await connect(cursor);
+            continue;
+          }
           if (payload.type === "state") {
-            const runId: string | null = payload.data.run ?? null;
-            this.currentRun = runId === null ? null : new Run(this.client, runId, this.id);
-            yield { type: "state", runId: null, seq: null, data: payload.data };
+            session.adoptState(payload.data);
             continue;
           }
           const data = payload.data;
@@ -134,16 +172,12 @@ export class Session {
           if (seq <= (watermark.get(runId) ?? 0)) continue;
           watermark.set(runId, seq);
           cursor = [runId, seq];
-          yield { type: payload.type, runId, seq, data: payload.data };
+          yield { type: payload.type, runId, seq, data };
         }
-      } catch (error) {
-        // undici surfaces network-level failures as TypeError ("fetch failed" /
-        // "terminated"); only those reconnect. Everything else (malformed
-        // payloads, bugs) propagates, mirroring the Python SDK.
-        if (!(error instanceof TypeError && /fetch failed|terminated/.test(error.message))) throw error;
+      } finally {
+        link.close();
       }
-      await sleep(this.client.reconnectDelayMs);
-    }
+    })();
   }
 }
 

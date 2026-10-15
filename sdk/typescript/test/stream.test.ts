@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FakeApi, sleep } from "./fake.ts";
+import { FakeApi } from "./fake.ts";
 import { NotFoundError, createClient } from "../src/index.ts";
 import type { Event } from "../src/index.ts";
 
@@ -32,8 +32,8 @@ async function withFake(fn: (fake: FakeApi, baseUrl: string) => Promise<void>): 
   }
 }
 
-function streamOf(baseUrl: string) {
-  return createClient("k", { baseUrl, reconnectDelayMs: 20 }).getSession(SESSION_ID).stream();
+async function streamOf(baseUrl: string, opts: { idleTimeoutMs?: number } = {}) {
+  return createClient("k", { baseUrl, reconnectDelayMs: 20, ...opts }).getSession(SESSION_ID).stream();
 }
 
 async function take(stream: AsyncGenerator<Event>, count: number): Promise<Event[]> {
@@ -45,29 +45,50 @@ async function take(stream: AsyncGenerator<Event>, count: number): Promise<Event
   return events;
 }
 
-test("state frames update currentRun", async () => {
+test("stream resolves once the subscription is live", async () => {
   await withFake(async (fake, baseUrl) => {
-    fake.routeRaw(EVENTS, [[stateFrame(RUN_ID), stateFrame(null)]], { hold: 0.3 });
-    const session = createClient("k", { baseUrl }).getSession(SESSION_ID);
+    fake.routeRaw(EVENTS, [[stateFrame(RUN_ID), eventFrame(1, "run_started", { content: "hi" })]], { hold: 0.3 });
+    const session = createClient("k", { baseUrl, reconnectDelayMs: 20 }).getSession(SESSION_ID);
 
-    const stream = session.stream();
-    const first = (await stream.next()).value;
-    assert.deepEqual([first.type, first.runId, first.seq], ["state", null, null]);
-    assert.equal(session.currentRun?.id, RUN_ID);
+    const stream = await session.stream();
+    assert.equal(fake.requests.length, 1); // the subscription is on the wire before submit could race it
 
-    const second = (await stream.next()).value;
-    assert.equal(second.type, "state");
-    assert.equal(session.currentRun, null);
+    const first = (await stream.next()).value!;
+    assert.deepEqual([first.type, first.seq], ["run_started", 1]);
     await stream.return();
+  });
+});
+
+test("state frames stay internal", async () => {
+  await withFake(async (fake, baseUrl) => {
+    fake.routeRaw(
+      EVENTS,
+      [[stateFrame(RUN_ID), eventFrame(1, "run_started", { content: "hi" }), stateFrame(null), eventFrame(2, "run_finished", { status: "succeeded" })]],
+      { hold: 0.3 },
+    );
+    const session = createClient("k", { baseUrl, reconnectDelayMs: 20 }).getSession(SESSION_ID);
+
+    const stream = await session.stream();
+    const seen = await take(stream, 2);
+    await stream.return();
+
+    assert.deepEqual(
+      seen.map((event) => [event.type, event.seq]),
+      [
+        ["run_started", 1],
+        ["run_finished", 2],
+      ],
+    );
+    assert.equal(session.currentRun, null); // the digested state frames still drive currentRun
   });
 });
 
 test("events yield typed frames and suppress duplicates", async () => {
   await withFake(async (fake, baseUrl) => {
     const finished = eventFrame(2, "run_finished", { status: "succeeded", result: "stub: hi" });
-    fake.routeRaw(EVENTS, [[eventFrame(1, "run_started", { content: "hi" }), finished, finished]], { hold: 0.3 });
+    fake.routeRaw(EVENTS, [[stateFrame(RUN_ID), eventFrame(1, "run_started", { content: "hi" }), finished, finished]], { hold: 0.3 });
 
-    const events = await take(streamOf(baseUrl), 2);
+    const events = await take(await streamOf(baseUrl), 2);
 
     assert.deepEqual(
       events.map((event) => [event.type, event.runId, event.seq]),
@@ -83,9 +104,9 @@ test("events yield typed frames and suppress duplicates", async () => {
 test("frames split across chunks reassemble", async () => {
   await withFake(async (fake, baseUrl) => {
     const whole = eventFrame(1, "run_started", { content: "hi" });
-    fake.routeRaw(EVENTS, [[whole.subarray(0, 20), whole.subarray(20)]], { hold: 0.3 });
+    fake.routeRaw(EVENTS, [[stateFrame(RUN_ID), whole.subarray(0, 20), whole.subarray(20)]], { hold: 0.3 });
 
-    const events = await take(streamOf(baseUrl), 1);
+    const events = await take(await streamOf(baseUrl), 1);
 
     assert.deepEqual([events[0].type, events[0].seq], ["run_started", 1]);
   });
@@ -96,13 +117,13 @@ test("reconnect resumes from the cursor and suppresses replay", async () => {
     fake.routeRaw(
       EVENTS,
       [
-        [eventFrame(1, "run_started", { content: "hi" }), eventFrame(2, "llm_call", { action_id: "a1" })],
-        [eventFrame(2, "llm_call", { action_id: "a1" }), eventFrame(3, "run_finished", { status: "succeeded" })],
+        [stateFrame(RUN_ID), eventFrame(1, "run_started", { content: "hi" }), eventFrame(2, "llm_call", { action_id: "a1" })],
+        [stateFrame(RUN_ID), eventFrame(2, "llm_call", { action_id: "a1" }), eventFrame(3, "run_finished", { status: "succeeded" })],
       ],
       { drop: true },
     );
 
-    const events = await take(streamOf(baseUrl), 3);
+    const events = await take(await streamOf(baseUrl), 3);
 
     assert.deepEqual(events.map((event) => event.seq), [1, 2, 3]);
     assert.deepEqual(fake.requests[0].query, {});
@@ -115,17 +136,17 @@ test("http errors raise without retry", async () => {
     fake.route("GET", EVENTS, { status: 404, body: { error: { code: "not_found", message: "no such session" } } });
     const session = createClient("k", { baseUrl, reconnectDelayMs: 20 }).getSession(SESSION_ID);
 
-    await assert.rejects(() => session.stream().next(), NotFoundError);
+    await assert.rejects(() => session.stream(), NotFoundError);
     assert.equal(fake.requests.length, 1);
   });
 });
 
 test("an explicit cursor reaches the wire", async () => {
   await withFake(async (fake, baseUrl) => {
-    fake.routeRaw(EVENTS, [[eventFrame(4, "run_finished", { status: "succeeded" })]], { hold: 0.3 });
+    fake.routeRaw(EVENTS, [[stateFrame(RUN_ID), eventFrame(4, "run_finished", { status: "succeeded" })]], { hold: 0.3 });
     const session = createClient("k", { baseUrl }).getSession(SESSION_ID);
 
-    const events = await take(session.stream({ fromRun: RUN_ID, fromSeq: 3 }), 1);
+    const events = await take(await session.stream({ fromRun: RUN_ID, fromSeq: 3 }), 1);
 
     assert.equal(events[0].seq, 4);
     assert.deepEqual(fake.requests[0].query, { from_run: RUN_ID, from_seq: "3" });
@@ -137,32 +158,68 @@ test("stream frames yield without moving the cursor", async () => {
     fake.routeRaw(
       EVENTS,
       [
-        [
-          stateFrame(RUN_ID),
-          eventFrame(1, "run_started", { content: "hi" }),
-          sse({ type: "message_delta", data: { run_id: RUN_ID, text: "增量" } }),
-        ],
-        [eventFrame(2, "run_finished", { status: "succeeded" })],
+        [stateFrame(RUN_ID), eventFrame(1, "run_started", { content: "hi" }), sse({ type: "message_delta", data: { run_id: RUN_ID, text: "增量" } })],
+        [stateFrame(RUN_ID), eventFrame(2, "run_finished", { status: "succeeded" })],
       ],
       { drop: true },
     );
     const session = createClient("k", { baseUrl, reconnectDelayMs: 20 }).getSession(SESSION_ID);
 
-    const stream = session.stream();
-    const seen = [(await stream.next()).value, (await stream.next()).value, (await stream.next()).value];
-    const fourth = (await stream.next()).value;
+    const stream = await session.stream();
+    const seen = [(await stream.next()).value!, (await stream.next()).value!];
+    const third = (await stream.next()).value!;
     await stream.return();
 
     assert.deepEqual(
       seen.map((e) => [e.type, e.seq]),
       [
-        ["state", null],
         ["run_started", 1],
         ["message_delta", null],
       ],
     );
-    assert.equal(seen[2].data.text, "增量");
-    assert.deepEqual([fourth.type, fourth.seq], ["run_finished", 2]);
+    assert.equal(seen[1].data.text, "增量");
+    assert.deepEqual([third.type, third.seq], ["run_finished", 2]);
+    // The reconnect carried the persisted cursor only, not the stream frame.
+    assert.deepEqual(fake.requests[1].query, { from_run: RUN_ID, from_seq: "1" });
+  });
+});
+
+test("frames flowing never reconnect", async () => {
+  await withFake(async (fake, baseUrl) => {
+    fake.routeRaw(
+      EVENTS,
+      [
+        [
+          stateFrame(RUN_ID),
+          eventFrame(1, "run_started", { content: "hi" }),
+          eventFrame(2, "llm_call", { action_id: "a1" }),
+          eventFrame(3, "run_finished", { status: "succeeded" }),
+        ],
+      ],
+      { hold: 0.3 },
+    );
+
+    const events = await take(await streamOf(baseUrl, { idleTimeoutMs: 200 }), 3);
+
+    assert.deepEqual(events.map((event) => event.seq), [1, 2, 3]);
+    assert.equal(fake.requests.length, 1);
+  });
+});
+
+test("idle silence reconnects with the cursor", async () => {
+  await withFake(async (fake, baseUrl) => {
+    fake.routeRaw(
+      EVENTS,
+      [
+        [stateFrame(RUN_ID), eventFrame(1, "run_started", { content: "hi" })],
+        [stateFrame(RUN_ID), eventFrame(2, "run_finished", { status: "succeeded" })],
+      ],
+      { hold: 0.5 }, // the link stays open but silent after the script
+    );
+
+    const events = await take(await streamOf(baseUrl, { idleTimeoutMs: 200 }), 2);
+
+    assert.deepEqual(events.map((event) => event.seq), [1, 2]);
     assert.deepEqual(fake.requests[1].query, { from_run: RUN_ID, from_seq: "1" });
   });
 });
