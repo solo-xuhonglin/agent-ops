@@ -1,5 +1,4 @@
 import time
-from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Self
 
@@ -25,7 +24,7 @@ class Agent:
 
 @dataclass
 class Event:
-    """One stream frame; run_id/seq are None on state frames."""
+    """One stream event; run_id/seq are None on stream frames."""
 
     type: str
     run_id: str | None
@@ -79,6 +78,58 @@ class Run:
             time.sleep(self._client.poll_interval)
 
 
+class EventStream:
+    """An events-only iterator over one session subscription.
+
+    Built with the subscription already live: the manager's immediate state
+    push has been consumed. State frames, silence detection, and reconnects
+    stay internal; duplicates are suppressed by a per-run seq watermark.
+    """
+
+    def __init__(self, session: "Session", cursor: tuple[str, int] | None):
+        self._session = session
+        self._cursor = cursor
+        self._watermark: dict[str, int] = {}
+        self._frames = self._open()
+
+    def _open(self):
+        params = {} if self._cursor is None else {"from_run": self._cursor[0], "from_seq": self._cursor[1]}
+        frames = self._session._client._http.events(
+            f"/v1/sessions/{self._session.id}/events", params, read_timeout=self._session._client.idle_timeout
+        )
+        self._session._adopt_state(next(frames)[1]["data"])  # first frame is always the state push
+        return frames
+
+    def __iter__(self) -> "EventStream":
+        return self
+
+    def __next__(self) -> Event:
+        while True:
+            try:
+                payload = next(self._frames)[1]
+            except (StopIteration, httpx.TransportError):
+                # The stream never ends on its own: EOF is a dropped link.
+                # Silence past the idle timeout surfaces as ReadTimeout here too.
+                time.sleep(self._session._client.reconnect_delay)
+                self._frames = self._open()
+                continue
+            if payload["type"] == "state":
+                self._session._adopt_state(payload["data"])
+                continue
+            data = payload["data"]
+            if "seq" not in data:
+                # Stream frames apply directly: no watermark, no cursor.
+                return Event(payload["type"], data.get("run_id"), None, data)
+            if data["seq"] <= self._watermark.get(data["run_id"], 0):
+                continue
+            self._watermark[data["run_id"]] = data["seq"]
+            self._cursor = (data["run_id"], data["seq"])
+            return Event(payload["type"], data["run_id"], data["seq"], data)
+
+    def close(self) -> None:
+        self._frames.close()
+
+
 class Session:
     """A conversation handle: submit, stream, and the current run (docs/02 §3)."""
 
@@ -99,46 +150,35 @@ class Session:
         view = self._client._http.json("POST", f"/v1/sessions/{self.id}/runs", body)
         return self._client._run(view)
 
-    def stream(self, *, from_run: str | None = None, from_seq: int = 0) -> Iterator[Event]:
-        """Subscribe to the session: state pushes and persistent events.
+    def _adopt_state(self, data: dict) -> None:
+        run_id = data.get("run")
+        self.current_run = None if run_id is None else Run(self._client, run_id, self.id)
 
-        Duplicates (the subscribe-before-replay race, replays after reconnect)
-        are suppressed by a per-run seq watermark; a dropped link reconnects
-        with the last delivered cursor. HTTP errors raise, no retry.
+    def stream(self, *, from_run: str | None = None, from_seq: int = 0) -> EventStream:
+        """Subscribe to the session and return an events-only iterator.
+
+        Returns once the subscription is live, so a submit right after cannot
+        miss stream frames. HTTP errors raise here, no retry.
         """
         cursor = None if from_run is None else (from_run, from_seq)
-        watermark: dict[str, int] = {}
-        while True:
-            params = {} if cursor is None else {"from_run": cursor[0], "from_seq": cursor[1]}
-            try:
-                for _, payload in self._client._http.events(f"/v1/sessions/{self.id}/events", params):
-                    if payload["type"] == "state":
-                        run_id = payload["data"].get("run")
-                        self.current_run = None if run_id is None else Run(self._client, run_id, self.id)
-                        yield Event("state", None, None, payload["data"])
-                        continue
-                    data = payload["data"]
-                    if "seq" not in data:
-                        # Stream frames apply directly: no watermark, no cursor.
-                        yield Event(payload["type"], data.get("run_id"), None, data)
-                        continue
-                    if data["seq"] <= watermark.get(data["run_id"], 0):
-                        continue
-                    watermark[data["run_id"]] = data["seq"]
-                    cursor = (data["run_id"], data["seq"])
-                    yield Event(payload["type"], data["run_id"], data["seq"], data)
-            except (httpx.TransportError, httpx.RemoteProtocolError):
-                pass
-            time.sleep(self._client.reconnect_delay)
+        return EventStream(self, cursor)
 
 
 class Client:
     """The agent handle; the key decides tenant, agent and principal."""
 
-    def __init__(self, key: str, base_url: str, poll_interval: float = 0.5, reconnect_delay: float = 1.0):
+    def __init__(
+        self,
+        key: str,
+        base_url: str,
+        poll_interval: float = 0.5,
+        reconnect_delay: float = 1.0,
+        idle_timeout: float = 30.0,
+    ):
         self._http = Http(base_url, key)
         self.poll_interval = poll_interval
         self.reconnect_delay = reconnect_delay
+        self.idle_timeout = idle_timeout
 
     def get_agent(self) -> Agent:
         data = self._http.json("GET", "/v1/agent")
@@ -167,5 +207,12 @@ class Client:
         self.close()
 
 
-def create_client(key: str, *, base_url: str, poll_interval: float = 0.5, reconnect_delay: float = 1.0) -> Client:
-    return Client(key, base_url, poll_interval, reconnect_delay)
+def create_client(
+    key: str,
+    *,
+    base_url: str,
+    poll_interval: float = 0.5,
+    reconnect_delay: float = 1.0,
+    idle_timeout: float = 30.0,
+) -> Client:
+    return Client(key, base_url, poll_interval, reconnect_delay, idle_timeout)

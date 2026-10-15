@@ -36,10 +36,13 @@ class Http:
             raise from_response(response.status_code, envelope.get("code", ""), envelope.get("message", ""))
         return response.json()
 
-    def events(self, path: str, params: dict) -> Iterator[tuple[str | None, dict]]:
-        """Yield (frame_id, payload) per SSE frame; the stream never ends on its own."""
+    def events(self, path: str, params: dict, *, read_timeout: float) -> Iterator[tuple[str | None, dict]]:
+        """Yield (frame_id, payload) per SSE frame; the stream never ends on
+        its own. read_timeout bounds the silence between frames — exceeding
+        it raises ReadTimeout, the caller's cue to reconnect.
+        """
         with self._client.stream(
-            "GET", path, params=params, timeout=httpx.Timeout(self._timeout, read=None)
+            "GET", path, params=params, timeout=httpx.Timeout(self._timeout, read=read_timeout)
         ) as response:
             if response.status_code >= 300:
                 response.read()
