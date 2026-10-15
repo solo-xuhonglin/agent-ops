@@ -11,7 +11,7 @@
 
 ## 1. 路线图
 
-小步迭代：每个单元以可运行的测试收口，顺序即依赖序。已完成：骨架（六容器 Docker 拓扑）、单元 1（config 接库）、单元 2（shared spec 模型与事件词汇表、按写者建表、种子）、单元 3（contract v1 + manager HTTP 面）、单元 4（内部协议 + worker 桩执行）、单元 5（事件推流）、单元 6（两个 SDK 并列收口）—— 阶段 A 完成；单元 7（ReAct 引擎：手写循环、fake LLM、流式增量、日志重建续跑）。worker 的模型调用当前只有 fake provider（`LLM_PROVIDER` 默认 `fake`），真实 provider 适配随配置与凭据阶段落地；快照、key、租户等由种子数据落库，配置系统（10–16）建成后由真实流程逐个替换种子。
+小步迭代：每个单元以可运行的测试收口，顺序即依赖序。已完成：骨架（六容器 Docker 拓扑）、单元 1（config 接库）、单元 2（shared spec 模型与事件词汇表、按写者建表、种子）、单元 3（contract v1 + manager HTTP 面）、单元 4（内部协议 + worker 桩执行）、单元 5（事件推流）、单元 6（两个 SDK 并列收口）—— 阶段 A 完成；单元 7（ReAct 引擎：手写循环、fake LLM、流式增量、日志重建续跑）、单元 8（上下文压缩：阈值触发 LLM 摘要、context_compacted 落库不外发、重建从标记重启）。worker 的模型调用当前只有 fake provider（`LLM_PROVIDER` 默认 `fake`），真实 provider 适配随配置与凭据阶段落地；快照、key、租户等由种子数据落库，配置系统（10–16）建成后由真实流程逐个替换种子。
 
 ### 阶段 A：SDK 链路
 
@@ -79,3 +79,4 @@
 16. **巡检周期与状态推送间隔取多少。** 前者决定一个 Run 无人接管多久才被发现；后者要小于链路上最短的超时（nginx 的 `proxy_read_timeout` 默认 60 秒），又不能太吵。见 [06-internal-protocol.md](./06-internal-protocol.md) 1.1 与 2.5。
 
 17. **统一编译是否引入 LangGraph。** 触发条件：DAG（单元 20）落地。手写循环已承载 ReAct；LangGraph 的价值在图结构与检查点，而运行真相源是本平台的运行日志，检查点与之重叠。引入前先回答「图编译换来什么手写循环给不了」。
+18. **`window_ratio` 何时生效。** 压缩的窗口占比阈值需要 model_id→窗口大小映射，只有真实 provider 能带来；当前仅 `token_limit` 触发，token 数按字符估算（len//4）。
