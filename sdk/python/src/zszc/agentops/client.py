@@ -118,6 +118,10 @@ class Session:
                         yield Event("state", None, None, payload["data"])
                         continue
                     data = payload["data"]
+                    if "seq" not in data:
+                        # Stream frames apply directly: no watermark, no cursor.
+                        yield Event(payload["type"], data.get("run_id"), None, data)
+                        continue
                     if data["seq"] <= watermark.get(data["run_id"], 0):
                         continue
                     watermark[data["run_id"]] = data["seq"]

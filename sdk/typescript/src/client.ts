@@ -124,7 +124,13 @@ export class Session {
             yield { type: "state", runId: null, seq: null, data: payload.data };
             continue;
           }
-          const { run_id: runId, seq } = payload.data;
+          const data = payload.data;
+          if (data.seq === undefined) {
+            // Stream frames apply directly: no watermark, no cursor.
+            yield { type: payload.type, runId: data.run_id ?? null, seq: null, data };
+            continue;
+          }
+          const { run_id: runId, seq } = data;
           if (seq <= (watermark.get(runId) ?? 0)) continue;
           watermark.set(runId, seq);
           cursor = [runId, seq];

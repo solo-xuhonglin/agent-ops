@@ -131,3 +131,38 @@ test("an explicit cursor reaches the wire", async () => {
     assert.deepEqual(fake.requests[0].query, { from_run: RUN_ID, from_seq: "3" });
   });
 });
+
+test("stream frames yield without moving the cursor", async () => {
+  await withFake(async (fake, baseUrl) => {
+    fake.routeRaw(
+      EVENTS,
+      [
+        [
+          stateFrame(RUN_ID),
+          eventFrame(1, "run_started", { content: "hi" }),
+          sse({ type: "message_delta", data: { run_id: RUN_ID, text: "增量" } }),
+        ],
+        [eventFrame(2, "run_finished", { status: "succeeded" })],
+      ],
+      { drop: true },
+    );
+    const session = createClient("k", { baseUrl, reconnectDelayMs: 20 }).getSession(SESSION_ID);
+
+    const stream = session.stream();
+    const seen = [(await stream.next()).value, (await stream.next()).value, (await stream.next()).value];
+    const fourth = (await stream.next()).value;
+    await stream.return();
+
+    assert.deepEqual(
+      seen.map((e) => [e.type, e.seq]),
+      [
+        ["state", null],
+        ["run_started", 1],
+        ["message_delta", null],
+      ],
+    );
+    assert.equal(seen[2].data.text, "增量");
+    assert.deepEqual([fourth.type, fourth.seq], ["run_finished", 2]);
+    assert.deepEqual(fake.requests[1].query, { from_run: RUN_ID, from_seq: "1" });
+  });
+});

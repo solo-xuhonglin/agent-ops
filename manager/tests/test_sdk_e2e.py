@@ -44,15 +44,25 @@ def test_submit_engine_execution_and_stream_back_to_the_sdk(db_engine):
                 worker_thread = threading.Thread(target=serve_dispatched_run, args=(worker,))
                 worker_thread.start()
                 try:
-                    # Until the manager forwards stream frames (next task),
-                    # its unknown-frame rule cuts the Run connection at the
-                    # first message_started: the SDK sees the persisted head.
-                    types = [next(stream).type, next(stream).type]
+                    types = []
+                    for event in stream:
+                        types.append(event.type)
+                        if event.type == "run_finished":
+                            break
                 finally:
                     stream.close()
                     worker_thread.join(timeout=5)
 
-                assert types == ["run_started", "llm_call"]
+                assert types == [
+                    "run_started",
+                    "llm_call",
+                    "message_started",
+                    "message_delta",
+                    "message_delta",
+                    "llm_result",
+                    "run_finished",
+                ]
+                assert session.current_run is None
 
                 result = run.wait()
                 assert result.output == "你好"
@@ -60,5 +70,21 @@ def test_submit_engine_execution_and_stream_back_to_the_sdk(db_engine):
 
                 again = client.get_run(run.id).wait()
                 assert again.output == "你好"
+
+                # A fresh subscribe replays the run from its start, with the
+                # llm_call projected (no messages on the wire).
+                replayed = client.get_session(session.id).stream()
+                try:
+                    replay_events = [next(replayed) for _ in range(5)]
+                finally:
+                    replayed.close()
+                assert [e.type for e in replay_events] == [
+                    "state",
+                    "run_started",
+                    "llm_call",
+                    "llm_result",
+                    "run_finished",
+                ]
+                assert "messages" not in replay_events[2].data
         finally:
             worker.close()

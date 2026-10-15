@@ -117,3 +117,30 @@ def test_explicit_cursor_reaches_the_wire(fake, client):
 
     assert event.seq == 4
     assert fake.requests[0]["query"] == {"from_run": RUN_ID, "from_seq": "3"}
+
+
+def test_stream_frames_yield_without_moving_the_cursor(fake, client):
+    fake.route_raw(
+        EVENTS,
+        [
+            [
+                (0, state_frame(RUN_ID)),
+                (0, event_frame(1, "run_started", {"content": "hi"})),
+                (0, sse({"type": "message_delta", "data": {"run_id": RUN_ID, "text": "增量"}})),
+            ],
+            [(0, event_frame(2, "run_finished", {"status": "succeeded"}))],
+        ],
+        drop=True,
+    )
+    session = client.get_session(SESSION_ID)
+
+    stream = session.stream()
+    seen = [next(stream) for _ in range(3)]
+    fourth = next(stream)
+    stream.close()
+
+    assert [(e.type, e.seq) for e in seen] == [("state", None), ("run_started", 1), ("message_delta", None)]
+    assert seen[2].data["text"] == "增量"
+    assert (fourth.type, fourth.seq) == ("run_finished", 2)
+    # The reconnect carried the persisted cursor only, not the stream frame.
+    assert fake.requests[1]["query"] == {"from_run": RUN_ID, "from_seq": "1"}
