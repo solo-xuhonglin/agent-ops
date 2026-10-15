@@ -135,11 +135,34 @@ def execute(engine, dispatch: dict, llm: LlmClient, cancelled: threading.Event):
     else:
         history = session_messages(engine, dispatch["session_id"], spec, str(run_id))
         user_message = render_user_message(dispatch["input"]["content"], dispatch["input"]["params"], spec)
-        messages = [
-            {"role": "system", "content": spec.instructions},
-            *history,
-            {"role": "user", "content": user_message},
-        ]
+        user_entry = {"role": "user", "content": user_message}
+        context = [*history, user_entry]
+        logged = next((r for r in rows if r.type == EventType.context_compacted), None)
+        if logged is not None:
+            history = [_summary_message(logged.payload["summary"]), *history[-2:]]
+        elif estimate_tokens(context) >= spec.context.token_limit and len(history) > 2:
+            oldest, kept = history[:-2], history[-2:]
+            summary, usage, summary_ms = _summarize(llm, spec, oldest, cancelled)
+            if cancelled.is_set():
+                yield row("run_finished", None, {"status": "cancelled", "result": None})
+                return
+            compacted = [_summary_message(summary), *kept]
+            yield row(
+                "context_compacted",
+                None,
+                {
+                    "summary": usage.content,
+                    "before_tokens": estimate_tokens(context),
+                    "after_tokens": estimate_tokens([*compacted, user_entry]),
+                    "compacted_messages": len(oldest),
+                    "input_tokens": usage.input_tokens,
+                    "output_tokens": usage.output_tokens,
+                    "cost": usage.cost,
+                    "duration_ms": summary_ms,
+                },
+            )
+            history = compacted
+        messages = [{"role": "system", "content": spec.instructions}, *history, user_entry]
         action_id = str(uuid.uuid4())
     yield row("llm_call", action_id, {"messages": messages})
 
@@ -174,3 +197,34 @@ def execute(engine, dispatch: dict, llm: LlmClient, cancelled: threading.Event):
         yield row("run_failed", None, {"error": "the model requested tools but none are available"})
         return
     yield row("run_finished", None, {"status": "succeeded", "result": result.content})
+
+
+def estimate_tokens(messages: list[dict]) -> int:
+    """A provider-independent stand-in for a real tokenizer: chars//4."""
+    return sum(max(1, len(str(message.get("content", ""))) // 4) for message in messages)
+
+
+def _summary_message(summary: str) -> dict:
+    return {"role": "user", "content": f"<历史摘要>\n{summary}"}
+
+
+def _summarize(
+    llm: LlmClient, spec: AgentSpec, oldest: list[dict], cancelled: threading.Event
+) -> tuple[str, LlmResult, int]:
+    """Summarize the oldest history with a silent LLM call (no stream frames).
+
+    The summary is engine behavior, not a chat message (docs/05 §8.3); its
+    tokens and cost ride the context_compacted row instead.
+    """
+    started = time.perf_counter()
+    prompt = "请把以下对话压缩成一段要点摘要：\n" + "\n".join(f"[{m['role']}] {m['content']}" for m in oldest)
+    usage = LlmResult(content="")
+    for event in llm.stream(
+        [{"role": "user", "content": prompt}], model_id=spec.model_id, model_params=spec.model_params
+    ):
+        if cancelled.is_set():
+            break
+        if not isinstance(event, LlmDelta):
+            usage = event.result
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    return usage.content, usage, duration_ms
