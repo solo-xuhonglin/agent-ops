@@ -2,7 +2,7 @@ from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel
-from shared.events import EventType
+from shared.events import EventType, public_event
 from shared.models import AgentDefinition, ExecutionRun, ExecutionSession, ReleaseArtifact, RunLog
 from shared.spec import AgentSpec
 from sqlalchemy import select
@@ -199,10 +199,12 @@ def replay_events(session_id: str, from_run: UUID | None, from_seq: int) -> list
             if row.seq <= floor.get(run_id, 0):
                 continue
             events.append(
-                {
-                    "type": row.type,
-                    "data": {"run_id": run_id, "seq": row.seq, "action_id": row.action_id, **row.payload},
-                }
+                public_event(
+                    {
+                        "type": row.type,
+                        "data": {"run_id": run_id, "seq": row.seq, "action_id": row.action_id, **row.payload},
+                    }
+                )
             )
     return events
 

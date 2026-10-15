@@ -82,12 +82,20 @@ class RunLink:
         self.sock = socket.create_connection(("127.0.0.1", internal.port), timeout=3)
         self.sock.sendall(encode_state(run_id, epoch))
 
-    def event(self, type_: str, seq: int, payload: dict):
+    def event(self, type_: str, seq: int, payload: dict, action_id: str | None = None):
+        from shared.events import public_event
         from shared.wire import encode
         from util import write_log
 
-        write_log(self.engine, self.run_id, seq, type_, payload)
-        self.sock.sendall(encode(type_, {"run_id": self.run_id, "seq": seq, "action_id": None, **payload}))
+        write_log(self.engine, self.run_id, seq, type_, payload, action_id)
+        entry = {"type": type_, "data": {"run_id": self.run_id, "seq": seq, "action_id": action_id, **payload}}
+        self.sock.sendall(encode(type_, public_event(entry)["data"]))
+
+    def stream_frame(self, type_: str, data: dict):
+        """A never-persisted frame: rides the wire, no row, no seq."""
+        from shared.wire import encode as _encode
+
+        self.sock.sendall(_encode(type_, data))
 
     def close(self):
         self.sock.close()
@@ -338,3 +346,72 @@ def test_full_queue_drops_subscriber():
 
     assert queue.qsize() == 1
     assert "sess-full" not in internal.subscribers
+
+
+def test_stream_frames_forwarded_without_cursor(base_url, auth_headers, db_engine):
+    key = auth_headers["Authorization"].removeprefix("Bearer ")
+    worker = FakeWorker("w-live")
+    try:
+        session_id, run_id, epoch = dispatch_run(base_url, key, worker)
+        stream = Sse(base_url, f"/v1/sessions/{session_id}/events", key)
+        link = RunLink(db_engine, run_id, epoch)
+        try:
+            link.event("run_started", 1, {"content": "hi", "session_id": session_id})
+            link.event("llm_call", 2, {"messages": [{"role": "system", "content": "SECRET"}]}, action_id="a1")
+            link.stream_frame("message_started", {"run_id": run_id})
+            link.stream_frame("message_delta", {"run_id": run_id, "text": "你好"})
+            link.event("run_finished", 3, {"status": "succeeded", "result": "你好"}, action_id=None)
+            time.sleep(0.3)
+            frames = stream.frames(6)
+        finally:
+            stream.close()
+            link.close()
+
+        assert frames[0][1]["type"] == "state"
+        assert frames[1][0] == f"{run_id}:1"
+        # llm_call replays WITHOUT its messages (引用外发,内容不外发).
+        assert frames[2][0] == f"{run_id}:2"
+        assert "messages" not in frames[2][1]["data"]
+        assert frames[3] == (None, {"type": "message_started", "data": {"run_id": run_id}})
+        assert frames[4] == (None, {"type": "message_delta", "data": {"run_id": run_id, "text": "你好"}})
+        assert frames[5][0] == f"{run_id}:3"
+        # terminal clears the accumulation buffer
+        assert run_id not in internal.message_buffers
+    finally:
+        worker.close()
+
+
+def test_subscribe_mid_message_gets_accumulated_catch_up(base_url, auth_headers, db_engine):
+    key = auth_headers["Authorization"].removeprefix("Bearer ")
+    worker = FakeWorker("w-catchup")
+    try:
+        session_id, run_id, epoch = dispatch_run(base_url, key, worker)
+        link = RunLink(db_engine, run_id, epoch)
+        try:
+            link.event("run_started", 1, {"content": "hi", "session_id": session_id})
+            link.event("llm_call", 2, {"messages": []}, action_id="a2")
+            link.stream_frame("message_started", {"run_id": run_id})
+            link.stream_frame("message_delta", {"run_id": run_id, "text": "第一"})
+            time.sleep(0.3)
+
+            stream = Sse(base_url, f"/v1/sessions/{session_id}/events", key)
+            try:
+                frames = stream.frames(5)
+                link.stream_frame("message_delta", {"run_id": run_id, "text": "第二"})
+                live = stream.frames(1)
+            finally:
+                stream.close()
+        finally:
+            link.close()
+
+        assert [frame[1]["type"] for frame in frames] == [
+            "state",
+            "run_started",
+            "llm_call",
+            "message_started",
+            "message_delta",
+        ]
+        assert frames[4][1]["data"]["text"] == "第一"
+        assert live == [(None, {"type": "message_delta", "data": {"run_id": run_id, "text": "第二"}})]
+    finally:
+        worker.close()

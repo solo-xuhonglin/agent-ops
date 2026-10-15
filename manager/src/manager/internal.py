@@ -3,7 +3,7 @@ import logging
 import os
 import time
 
-from shared.events import EventType
+from shared.events import STREAM_EVENT_TYPES, EventType
 from shared.models import ExecutionRun, ExecutionSession, ReleaseArtifact
 from shared.wire import encode, read_frame
 from sqlalchemy import select, update
@@ -26,6 +26,9 @@ run_session: dict[str, str] = {}
 # from forwarded events (a re-statement, never a second source — docs/06 §4).
 subscribers: dict[str, set[asyncio.Queue]] = {}
 session_runs: dict[str, dict | None] = {}
+# Accumulated text of the in-flight message per run: the SSE catch-up
+# snapshot for late subscribers (docs/05 §4.2 step 3).
+message_buffers: dict[str, str] = {}
 
 # A subscriber that falls this far behind is dropped; it reconnects with
 # its cursor and the log replays it (at-least-once stands).
@@ -204,8 +207,20 @@ async def _handle_connection(reader: asyncio.StreamReader, writer: asyncio.Strea
                 else:
                     if type_ in _TERMINAL_EVENTS:
                         session_runs[session_id] = None
+                        message_buffers.pop(data["run_id"], None)
                     else:
                         session_runs[session_id] = {"run_id": data["run_id"], "seq": data.get("seq")}
+                    _forward(session_id, {"type": type_, "data": data})
+            elif type_ in STREAM_EVENT_TYPES:
+                session_id = run_session.get(data.get("run_id"))
+                if session_id is None:
+                    log.error("stream frame for undispatched run %r; dropping", data.get("run_id"))
+                else:
+                    run = data["run_id"]
+                    if type_ == "message_started":
+                        message_buffers[run] = ""
+                    else:
+                        message_buffers[run] = message_buffers.get(run, "") + data.get("text", "")
                     _forward(session_id, {"type": type_, "data": data})
             else:
                 # One deployment upgrades together: an unknown name on the
@@ -220,4 +235,5 @@ async def _handle_connection(reader: asyncio.StreamReader, writer: asyncio.Strea
             reported_running.pop(worker_id, None)
         if run_id is not None:
             run_conns.discard(run_id)
+            message_buffers.pop(run_id, None)
         writer.close()

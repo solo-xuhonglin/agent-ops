@@ -70,9 +70,9 @@ class FakeWorker:
         time.sleep(0.2)
 
 
-def write_log(engine, run_id, seq: int, type_: str, payload: dict | None = None):
+def write_log(engine, run_id, seq: int, type_: str, payload: dict | None = None, action_id: str | None = None):
     with Session(engine) as session, session.begin():
-        session.add(RunLog(run_id=run_id, seq=seq, action_id=None, type=type_, payload=payload or {}))
+        session.add(RunLog(run_id=run_id, seq=seq, action_id=action_id, type=type_, payload=payload or {}))
 
 
 def submit(client, headers, session_id: str, content: str = "hi"):

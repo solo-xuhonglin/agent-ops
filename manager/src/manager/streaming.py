@@ -4,6 +4,8 @@ import os
 from collections.abc import AsyncIterator
 from uuid import UUID
 
+from shared.events import STREAM_EVENT_TYPES
+
 from manager import internal, runs
 
 
@@ -34,10 +36,21 @@ async def stream(session_id: UUID, from_run: UUID | None, from_seq: int) -> Asyn
         yield state_frame(sid)
         for event in await asyncio.to_thread(runs.replay_events, sid, from_run, from_seq):
             yield _frame(event, f"{event['data']['run_id']}:{event['data']['seq']}")
+        active = internal.session_runs.get(sid)
+        if active is not None:
+            buffered = internal.message_buffers.get(active["run_id"])
+            if buffered is not None:
+                yield _frame({"type": "message_started", "data": {"run_id": active["run_id"]}})
+                if buffered:
+                    yield _frame({"type": "message_delta", "data": {"run_id": active["run_id"], "text": buffered}})
         while True:
             try:
                 item = await asyncio.wait_for(queue.get(), timeout=interval)
-                yield _frame(item, f"{item['data']['run_id']}:{item['data']['seq']}")
+                # Stream frames carry no seq and no cursor (docs/05 §3.3).
+                cursor = (
+                    None if item["type"] in STREAM_EVENT_TYPES else f"{item['data']['run_id']}:{item['data']['seq']}"
+                )
+                yield _frame(item, cursor)
             except TimeoutError:
                 if queue not in internal.subscribers.get(sid, set()):
                     break
