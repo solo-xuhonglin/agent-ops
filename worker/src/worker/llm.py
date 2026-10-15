@@ -29,7 +29,9 @@ LlmEvent = LlmDelta | LlmDone
 class LlmClient(Protocol):
     """A provider-shaped boundary: deltas in order, one LlmDone last."""
 
-    def stream(self, messages: list[dict], *, model_id: str, model_params: dict) -> Iterator[LlmEvent]: ...
+    def stream(
+        self, messages: list[dict], *, tools: list[dict], model_id: str, model_params: dict
+    ) -> Iterator[LlmEvent]: ...
 
 
 def _last_user_text(messages: list[dict]) -> str:
@@ -45,10 +47,12 @@ class FakeLlm:
 
     def __init__(self, replies: list[tuple[list[str], LlmResult]] | None = None):
         self.replies = list(replies) if replies is not None else None
-        self.calls: list[tuple[list[dict], str, dict]] = []
+        self.calls: list[tuple[list[dict], str, dict, list[dict]]] = []
 
-    def stream(self, messages: list[dict], *, model_id: str, model_params: dict) -> Iterator[LlmEvent]:
-        self.calls.append((messages, model_id, model_params))
+    def stream(
+        self, messages: list[dict], *, tools: list[dict], model_id: str, model_params: dict
+    ) -> Iterator[LlmEvent]:
+        self.calls.append((messages, model_id, model_params, tools))
         if self.replies:
             chunks, result = self.replies.pop(0)
         else:

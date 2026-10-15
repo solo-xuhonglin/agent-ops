@@ -106,7 +106,7 @@ class CancelAfterFirstChunk:
     def __init__(self, event):
         self.event = event
 
-    def stream(self, messages, *, model_id, model_params):
+    def stream(self, messages, *, tools, model_id, model_params):
         yield LlmDelta("第一段")
         self.event.set()
         yield LlmDelta("不该出现")
@@ -127,23 +127,6 @@ def test_cancel_mid_stream_aborts_without_llm_result(db_engine):
         ("row", "run_finished"),
     ]
     assert items[-1]["payload"] == {"status": "cancelled", "result": None}
-
-
-def test_tool_calls_fail_the_run(db_engine):
-    dispatch = make_dispatch(db_engine)
-    llm = FakeLlm([([], LlmResult(content="", tool_calls=[{"name": "t", "arguments": {}}]))])
-
-    items = run_engine(db_engine, dispatch, llm)
-
-    kinds = [(item["kind"], item["type"]) for item in items]
-    assert kinds == [
-        ("row", "run_started"),
-        ("row", "llm_call"),
-        ("stream", "message_started"),
-        ("row", "llm_result"),
-        ("row", "run_failed"),
-    ]
-    assert items[-1]["payload"]["error"]
 
 
 def test_epoch_mismatch_yields_nothing(db_engine):

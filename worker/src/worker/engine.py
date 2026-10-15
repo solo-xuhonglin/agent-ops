@@ -1,3 +1,4 @@
+import json
 import threading
 import time
 import uuid
@@ -9,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from worker.llm import LlmClient, LlmDelta, LlmResult
+from worker.tool_exec import CredentialUnavailable, ToolError, execute_tool
 
 _TERMINAL_TYPES = {EventType.run_finished, EventType.run_failed}
 
@@ -43,7 +45,7 @@ def session_messages(engine, session_id: str, spec: AgentSpec, exclude_run_id: s
     Each prior run contributes its user message (rendered from run_started)
     and its last assistant message. exclude_run_id keeps the current run's
     own (possibly half-finished) exchange out — the engine adds its user
-    message itself.
+    message itself. Tool rounds of prior runs stay trace-only.
     """
     messages: list[dict] = []
     with Session(engine) as session:
@@ -83,13 +85,13 @@ def session_messages(engine, session_id: str, spec: AgentSpec, exclude_run_id: s
 
 
 def execute(engine, dispatch: dict, llm: LlmClient, cancelled: threading.Event):
-    """Walk one ReAct iteration as a generator of write-ordered items.
+    """Walk the ReAct loop as a generator of write-ordered items.
 
     Yields {"kind": "row", ...} durable log rows and {"kind": "stream", ...}
     never-persisted increments (docs/05 §2, §3.3). The caller makes each row
     durable before its wire frame. Idempotent across re-dispatches: terminal
-    tails yield nothing, and an open llm_call is retried (Task 5) with the
-    same action_id (docs/05 §5).
+    tails yield nothing; an open llm_call or tool_call is retried with the
+    same action_id and arguments straight from the log (docs/05 §5).
     """
     run_id = uuid.UUID(dispatch["run_id"])
     with Session(engine) as session:
@@ -127,84 +129,198 @@ def execute(engine, dispatch: dict, llm: LlmClient, cancelled: threading.Event):
         yield row("run_finished", None, {"status": "cancelled", "result": None})
         return
 
-    # An open llm_call is retried as-is: a NEW row with the SAME action_id and
-    # the messages copied from the log — no model re-decision (docs/05 §5).
+    def tool_round(name: str, action_id: str, arguments: dict):
+        """One tool invocation as rows; returns the message to append, or
+        None after yielding run_failed (credential unavailable, docs/09 §4)."""
+        run_id_text = str(run_id)
+        yield row(
+            "tool_call",
+            action_id,
+            {"tool": name, "arguments": arguments, "idempotency_key": f"{run_id_text}:{action_id}"},
+        )
+        tool = next((item for item in spec.tools if item.name == name), None)
+        if tool is None:
+            outcome = {
+                "ok": False,
+                "result": None,
+                "error": f"unknown tool {name}",
+                "duration_ms": 0,
+                "truncated": False,
+            }
+        else:
+            try:
+                outcome = execute_tool(run_id_text, action_id, tool, arguments)
+            except CredentialUnavailable:
+                yield row("run_failed", None, {"error": f"credential '{tool.credential}' unavailable"})
+                return None
+            except ToolError as error:
+                outcome = {"ok": False, "result": None, "error": str(error), "duration_ms": 0, "truncated": False}
+        yield row(
+            "tool_result",
+            action_id,
+            {
+                "result": outcome["result"],
+                "error": outcome["error"],
+                "duration_ms": outcome["duration_ms"],
+                "truncated": outcome["truncated"],
+            },
+        )
+        content = outcome["result"] if outcome["ok"] else f"error: {outcome['error']}"
+        return {"role": "tool", "tool_call_id": action_id, "content": content}
+
+    def assistant_tool_calls(calls: list[dict]) -> dict:
+        return {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": call["id"],
+                    "type": "function",
+                    "function": {
+                        "name": call["name"],
+                        "arguments": json.dumps(call.get("arguments", {}), ensure_ascii=False),
+                    },
+                }
+                for call in calls
+            ],
+        }
+
+    # Open actions of either kind, retried as-is (docs/05 §5).
     pending: dict[str, RunLog] = {}
     for row_ in rows:
-        if row_.type == EventType.llm_call:
+        if row_.type in (EventType.llm_call, EventType.tool_call):
             pending[row_.action_id] = row_
-        elif row_.type == EventType.llm_result:
+        elif row_.type in (EventType.llm_result, EventType.tool_result):
             pending.pop(row_.action_id, None)
+    resume = max(pending.values(), key=lambda r: r.seq) if pending else None
+    iterations_used = sum(1 for row_ in rows if row_.type == EventType.llm_result)
 
-    if pending:
-        resume = max(pending.values(), key=lambda r: r.seq)
-        action_id = resume.action_id
+    if resume is not None and resume.type == EventType.llm_call:
         messages = resume.payload["messages"]
+        first_action = resume.action_id
     else:
-        history = session_messages(engine, dispatch["session_id"], spec, str(run_id))
-        user_message = render_user_message(dispatch["input"]["content"], dispatch["input"]["params"], spec)
-        user_entry = {"role": "user", "content": user_message}
-        context = [*history, user_entry]
-        logged = next((r for r in rows if r.type == EventType.context_compacted), None)
-        if logged is not None:
-            history = [_summary_message(logged.payload["summary"]), *history[-2:]]
-        elif estimate_tokens(context) >= spec.context.token_limit and len(history) > 2:
-            oldest, kept = history[:-2], history[-2:]
-            summary, usage, summary_ms = _summarize(llm, spec, oldest, cancelled)
+        first_action = None
+        if resume is not None and resume.type == EventType.tool_call:
+            # Rebuild the interrupted round from its own rows: the round's
+            # llm_call payload + its assistant tool_calls + completed tools.
+            call_row = max(
+                (r for r in rows if r.type == EventType.llm_call and r.seq < resume.seq), key=lambda r: r.seq
+            )
+            result_row = max(
+                (r for r in rows if r.type == EventType.llm_result and call_row.seq < r.seq < resume.seq),
+                key=lambda r: r.seq,
+            )
+            round_calls = [r for r in rows if r.type == EventType.tool_call and r.seq > result_row.seq]
+            completed = [r for r in rows if r.type == EventType.tool_result and r.seq > result_row.seq]
+            messages = [
+                *call_row.payload["messages"],
+                assistant_tool_calls(
+                    [
+                        {"id": call.action_id, "name": call.payload["tool"], "arguments": call.payload["arguments"]}
+                        for call in round_calls
+                    ]
+                ),
+                *[
+                    {
+                        "role": "tool",
+                        "tool_call_id": result.action_id,
+                        "content": result.payload.get("result") or f"error: {result.payload.get('error')}",
+                    }
+                    for result in completed
+                ],
+            ]
+            message = yield from tool_round(resume.payload["tool"], resume.action_id, resume.payload["arguments"])
+            if message is None:
+                return
             if cancelled.is_set():
                 yield row("run_finished", None, {"status": "cancelled", "result": None})
                 return
-            compacted = [_summary_message(summary), *kept]
-            yield row(
-                "context_compacted",
-                None,
-                {
-                    "summary": usage.content,
-                    "before_tokens": estimate_tokens(context),
-                    "after_tokens": estimate_tokens([*compacted, user_entry]),
-                    "compacted_messages": len(oldest),
-                    "input_tokens": usage.input_tokens,
-                    "output_tokens": usage.output_tokens,
-                    "cost": usage.cost,
-                    "duration_ms": summary_ms,
-                },
-            )
-            history = compacted
-        messages = [{"role": "system", "content": spec.instructions}, *history, user_entry]
-        action_id = str(uuid.uuid4())
-    yield row("llm_call", action_id, {"messages": messages})
-
-    started = time.perf_counter()
-    run_id_text = str(run_id)
-    yield {"kind": "stream", "type": "message_started", "data": {"run_id": run_id_text}}
-    result = LlmResult(content="")
-    for event in llm.stream(messages, model_id=spec.model_id, model_params=spec.model_params):
-        if cancelled.is_set():
-            break
-        if isinstance(event, LlmDelta):
-            yield {"kind": "stream", "type": "message_delta", "data": {"run_id": run_id_text, "text": event.text}}
+            messages = [*messages, message]
         else:
-            result = event.result
-    if cancelled.is_set():
-        yield row("run_finished", None, {"status": "cancelled", "result": None})
-        return
+            history = session_messages(engine, dispatch["session_id"], spec, str(run_id))
+            user_message = render_user_message(dispatch["input"]["content"], dispatch["input"]["params"], spec)
+            user_entry = {"role": "user", "content": user_message}
+            context = [*history, user_entry]
+            logged = next((r for r in rows if r.type == EventType.context_compacted), None)
+            if logged is not None:
+                history = [_summary_message(logged.payload["summary"]), *history[-2:]]
+            elif estimate_tokens(context) >= spec.context.token_limit and len(history) > 2:
+                oldest, kept = history[:-2], history[-2:]
+                summary, usage, summary_ms = _summarize(llm, spec, oldest, cancelled)
+                if cancelled.is_set():
+                    yield row("run_finished", None, {"status": "cancelled", "result": None})
+                    return
+                compacted = [_summary_message(summary), *kept]
+                yield row(
+                    "context_compacted",
+                    None,
+                    {
+                        "summary": usage.content,
+                        "before_tokens": estimate_tokens(context),
+                        "after_tokens": estimate_tokens([*compacted, user_entry]),
+                        "compacted_messages": len(oldest),
+                        "input_tokens": usage.input_tokens,
+                        "output_tokens": usage.output_tokens,
+                        "cost": usage.cost,
+                        "duration_ms": summary_ms,
+                    },
+                )
+                history = compacted
+            messages = [{"role": "system", "content": spec.instructions}, *history, user_entry]
 
-    yield row(
-        "llm_result",
-        action_id,
-        {
-            "content": result.content,
-            "tool_calls": result.tool_calls,
-            "input_tokens": result.input_tokens,
-            "output_tokens": result.output_tokens,
-            "cost": result.cost,
-            "duration_ms": int((time.perf_counter() - started) * 1000),
-        },
-    )
-    if result.tool_calls:
-        yield row("run_failed", None, {"error": "the model requested tools but none are available"})
-        return
-    yield row("run_finished", None, {"status": "succeeded", "result": result.content})
+    tool_defs = [tool.to_definition() for tool in spec.tools]
+    run_id_text = str(run_id)
+
+    while True:
+        if iterations_used >= spec.max_iterations:
+            yield row("run_failed", None, {"error": f"max iterations ({spec.max_iterations}) exceeded"})
+            return
+        action_id = first_action or str(uuid.uuid4())
+        first_action = None
+        yield row("llm_call", action_id, {"messages": messages})
+
+        started = time.perf_counter()
+        yield {"kind": "stream", "type": "message_started", "data": {"run_id": run_id_text}}
+        result = LlmResult(content="")
+        for event in llm.stream(messages, tools=tool_defs, model_id=spec.model_id, model_params=spec.model_params):
+            if cancelled.is_set():
+                break
+            if isinstance(event, LlmDelta):
+                yield {"kind": "stream", "type": "message_delta", "data": {"run_id": run_id_text, "text": event.text}}
+            else:
+                result = event.result
+        if cancelled.is_set():
+            yield row("run_finished", None, {"status": "cancelled", "result": None})
+            return
+
+        yield row(
+            "llm_result",
+            action_id,
+            {
+                "content": result.content,
+                "tool_calls": result.tool_calls,
+                "input_tokens": result.input_tokens,
+                "output_tokens": result.output_tokens,
+                "cost": result.cost,
+                "duration_ms": int((time.perf_counter() - started) * 1000),
+            },
+        )
+        iterations_used += 1
+
+        if not result.tool_calls:
+            yield row("run_finished", None, {"status": "succeeded", "result": result.content})
+            return
+
+        calls = [{"id": str(uuid.uuid4()), **call} for call in result.tool_calls]
+        messages = [*messages, assistant_tool_calls(calls)]
+        for call in calls:
+            if cancelled.is_set():
+                yield row("run_finished", None, {"status": "cancelled", "result": None})
+                return
+            message = yield from tool_round(call["name"], call["id"], call.get("arguments", {}))
+            if message is None:
+                return
+            messages = [*messages, message]
 
 
 def estimate_tokens(messages: list[dict]) -> int:
@@ -228,7 +344,7 @@ def _summarize(
     prompt = "请把以下对话压缩成一段要点摘要：\n" + "\n".join(f"[{m['role']}] {m['content']}" for m in oldest)
     usage = LlmResult(content="")
     for event in llm.stream(
-        [{"role": "user", "content": prompt}], model_id=spec.model_id, model_params=spec.model_params
+        [{"role": "user", "content": prompt}], tools=[], model_id=spec.model_id, model_params=spec.model_params
     ):
         if cancelled.is_set():
             break

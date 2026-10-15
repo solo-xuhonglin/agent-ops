@@ -16,7 +16,7 @@ def test_scripted_reply_streams_deltas_then_done():
     llm = FakeLlm([(["你好", "世界"], LlmResult(content="你好世界", input_tokens=4, output_tokens=4, cost=0.0))])
 
     deltas, done = drain(
-        llm.stream([{"role": "user", "content": "hi"}], model_id="m", model_params={"temperature": 0.2})
+        llm.stream([{"role": "user", "content": "hi"}], model_id="m", model_params={"temperature": 0.2}, tools=[])
     )
 
     assert deltas == ["你好", "世界"]
@@ -32,8 +32,8 @@ def test_calls_recorded_and_replies_popped_in_order():
     )
     messages = [{"role": "user", "content": "hi"}]
 
-    drain(llm.stream(messages, model_id="m1", model_params={}))
-    drain(llm.stream(messages, model_id="m2", model_params={}))
+    drain(llm.stream(messages, model_id="m1", model_params={}, tools=[]))
+    drain(llm.stream(messages, model_id="m2", model_params={}, tools=[]))
 
     assert [(call[1], call[2]) for call in llm.calls] == [("m1", {}), ("m2", {})]
     assert llm.calls[0][0] is messages
@@ -44,7 +44,10 @@ def test_default_reply_echoes_last_user_message():
 
     deltas, done = drain(
         llm.stream(
-            [{"role": "system", "content": "s"}, {"role": "user", "content": "hello"}], model_id="m", model_params={}
+            [{"role": "system", "content": "s"}, {"role": "user", "content": "hello"}],
+            model_id="m",
+            model_params={},
+            tools=[],
         )
     )
 
@@ -59,7 +62,7 @@ def test_default_reply_echoes_last_user_message():
 def test_tool_calls_pass_through():
     llm = FakeLlm([([""], LlmResult(content="", tool_calls=[{"name": "t", "arguments": {}}]))])
 
-    _, done = drain(llm.stream([{"role": "user", "content": "x"}], model_id="m", model_params={}))
+    _, done = drain(llm.stream([{"role": "user", "content": "x"}], model_id="m", model_params={}, tools=[]))
 
     assert done.tool_calls == [{"name": "t", "arguments": {}}]
 
