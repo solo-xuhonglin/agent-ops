@@ -146,14 +146,14 @@ def test_subscribe_without_cursor_from_run_start(base_url, auth_headers, db_engi
             assert frames[1] == (
                 f"{run_id}:1",
                 {
-                    "type": "RUN_STARTED",
+                    "type": "run_started",
                     "data": {"run_id": run_id, "seq": 1, "action_id": None, "content": "hi", "session_id": session_id},
                 },
             )
             assert frames[2] == (
                 f"{run_id}:2",
                 {
-                    "type": "RUN_FINISHED",
+                    "type": "run_finished",
                     "data": {
                         "run_id": run_id,
                         "seq": 2,
@@ -187,7 +187,7 @@ def test_reconnect_from_cursor(base_url, auth_headers, db_engine):
                 stream.close()
 
             assert frames[0][1]["type"] == "state"
-            assert frames[1][1]["type"] == "RUN_FINISHED"
+            assert frames[1][1]["type"] == "run_finished"
             assert frames[1][0] == f"{run_id}:2"
         finally:
             link.close()
@@ -212,7 +212,7 @@ def test_live_event_forwarded(base_url, auth_headers, db_engine):
                 assert frame == (
                     f"{run_id}:1",
                     {
-                        "type": "RUN_STARTED",
+                        "type": "run_started",
                         "data": {
                             "run_id": run_id,
                             "seq": 1,
@@ -263,7 +263,7 @@ def test_second_subscriber_independent(base_url, auth_headers, db_engine):
                 second.close()
 
             assert frames_one == frames_two
-            assert frames_one[1][1]["type"] == "RUN_STARTED"
+            assert frames_one[1][1]["type"] == "run_started"
         finally:
             link.close()
     finally:
@@ -358,9 +358,9 @@ def test_stream_frames_forwarded_without_cursor(base_url, auth_headers, db_engin
         try:
             link.event("run_started", 1, {"content": "hi", "session_id": session_id})
             link.event("llm_call", 2, {"messages": [{"role": "system", "content": "SECRET"}]}, action_id="a1")
-            link.stream_frame("TEXT_MESSAGE_START", {"run_id": run_id})
-            link.stream_frame("TEXT_MESSAGE_CONTENT", {"run_id": run_id, "delta": "你好"})
-            link.stream_frame("TEXT_MESSAGE_END", {"run_id": run_id})
+            link.stream_frame("text_message_start", {"run_id": run_id})
+            link.stream_frame("text_message_content", {"run_id": run_id, "delta": "你好"})
+            link.stream_frame("text_message_end", {"run_id": run_id})
             link.event("run_finished", 3, {"status": "succeeded", "result": "你好"}, action_id=None)
             time.sleep(0.3)
             read = []
@@ -388,12 +388,12 @@ def test_stream_frames_forwarded_without_cursor(base_url, auth_headers, db_engin
         assert read[0][1]["type"] == "state"
         assert [frame[0] for frame in frames] == [f"{run_id}:1", f"{run_id}:2", None, None, None, f"{run_id}:3"]
         # Replay rides the wire under the external names (AG-UI vocabulary).
-        assert [frames[0][1]["type"], frames[1][1]["type"], frames[5][1]["type"]] == ["RUN_STARTED", "llm_call", "RUN_FINISHED"]
+        assert [frames[0][1]["type"], frames[1][1]["type"], frames[5][1]["type"]] == ["run_started", "llm_call", "run_finished"]
         # llm_call rides the wire WITHOUT its messages (引用外发,内容不外发).
         assert "messages" not in frames[1][1]["data"]
-        assert frames[2] == (None, {"type": "TEXT_MESSAGE_START", "data": {"run_id": run_id}})
-        assert frames[3] == (None, {"type": "TEXT_MESSAGE_CONTENT", "data": {"run_id": run_id, "delta": "你好"}})
-        assert frames[4] == (None, {"type": "TEXT_MESSAGE_END", "data": {"run_id": run_id}})
+        assert frames[2] == (None, {"type": "text_message_start", "data": {"run_id": run_id}})
+        assert frames[3] == (None, {"type": "text_message_content", "data": {"run_id": run_id, "delta": "你好"}})
+        assert frames[4] == (None, {"type": "text_message_end", "data": {"run_id": run_id}})
         # terminal clears the accumulation buffer
         assert run_id not in internal.message_buffers
     finally:
@@ -409,8 +409,8 @@ def test_subscribe_mid_message_gets_accumulated_catch_up(base_url, auth_headers,
         try:
             link.event("run_started", 1, {"content": "hi", "session_id": session_id})
             link.event("llm_call", 2, {"messages": []}, action_id="a2")
-            link.stream_frame("TEXT_MESSAGE_START", {"run_id": run_id})
-            link.stream_frame("TEXT_MESSAGE_CONTENT", {"run_id": run_id, "delta": "第一"})
+            link.stream_frame("text_message_start", {"run_id": run_id})
+            link.stream_frame("text_message_content", {"run_id": run_id, "delta": "第一"})
             time.sleep(0.3)
 
             stream = Sse(base_url, f"/v1/sessions/{session_id}/events", key)
@@ -419,9 +419,9 @@ def test_subscribe_mid_message_gets_accumulated_catch_up(base_url, auth_headers,
                 while True:
                     frame = stream.frames(1)[0]
                     read.append(frame)
-                    if frame[1]["type"] == "TEXT_MESSAGE_CONTENT":
+                    if frame[1]["type"] == "text_message_content":
                         break
-                link.stream_frame("TEXT_MESSAGE_CONTENT", {"run_id": run_id, "delta": "第二"})
+                link.stream_frame("text_message_content", {"run_id": run_id, "delta": "第二"})
                 live = None
                 while True:
                     frame = stream.frames(1)[0]
@@ -435,9 +435,9 @@ def test_subscribe_mid_message_gets_accumulated_catch_up(base_url, auth_headers,
 
         frames = [frame for frame in read if frame[1]["type"] != "state"]
         assert read[0][1]["type"] == "state"
-        assert [frame[1]["type"] for frame in frames] == ["RUN_STARTED", "llm_call", "TEXT_MESSAGE_START", "TEXT_MESSAGE_CONTENT"]
+        assert [frame[1]["type"] for frame in frames] == ["run_started", "llm_call", "text_message_start", "text_message_content"]
         assert frames[3][1]["data"]["delta"] == "第一"
-        assert live == (None, {"type": "TEXT_MESSAGE_CONTENT", "data": {"run_id": run_id, "delta": "第二"}})
+        assert live == (None, {"type": "text_message_content", "data": {"run_id": run_id, "delta": "第二"}})
     finally:
         worker.close()
 
@@ -465,6 +465,6 @@ def test_context_compacted_replays_without_its_summary(base_url, auth_headers, d
     finally:
         worker.close()
 
-    assert [frame[1]["type"] for frame in frames] == ["state", "RUN_STARTED", "context_compacted"]
+    assert [frame[1]["type"] for frame in frames] == ["state", "run_started", "context_compacted"]
     assert "summary" not in frames[2][1]["data"]
     assert frames[2][1]["data"]["before_tokens"] == 99

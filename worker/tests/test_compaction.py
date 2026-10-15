@@ -115,9 +115,9 @@ def test_over_threshold_compacts_before_the_chat_call(db_engine):
         ("row", "run_started"),
         ("row", "context_compacted"),
         ("row", "llm_call"),
-        ("stream", "TEXT_MESSAGE_START"),
-        ("stream", "TEXT_MESSAGE_CONTENT"),
-        ("stream", "TEXT_MESSAGE_END"),
+        ("stream", "text_message_start"),
+        ("stream", "text_message_content"),
+        ("stream", "text_message_end"),
         ("row", "llm_result"),
         ("row", "run_finished"),
     ]

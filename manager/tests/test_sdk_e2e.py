@@ -48,20 +48,20 @@ def test_submit_engine_execution_and_stream_back_to_the_sdk(db_engine, monkeypat
                     types = []
                     for event in stream:
                         types.append(event.type)
-                        if event.type == "RUN_FINISHED":
+                        if event.type == "run_finished":
                             break
                 finally:
                     stream.close()
                     worker_thread.join(timeout=5)
 
                 assert types == [
-                    "RUN_STARTED",
+                    "run_started",
                     "llm_call",
                     "message",  # delta "你"
                     "message",  # delta "好"
                     "message",  # TEXT_MESSAGE_END seals the run's message
                     "llm_result",
-                    "RUN_FINISHED",
+                    "run_finished",
                 ]
                 assert session.current_run is None
 
@@ -82,11 +82,11 @@ def test_submit_engine_execution_and_stream_back_to_the_sdk(db_engine, monkeypat
                 finally:
                     replayed.close()
                 assert [e.type for e in replay_events] == [
-                    "RUN_STARTED",
+                    "run_started",
                     "llm_call",
                     "llm_result",
                     "message",
-                    "RUN_FINISHED",
+                    "run_finished",
                 ]
                 assert replay_events[3].data == {"text": "你好", "delta": "", "done": True}
                 assert "messages" not in replay_events[1].data
@@ -186,7 +186,7 @@ def test_tool_round_trips_through_the_stream(db_engine):
                         for event in stream:
                             types.append(event.type)
                             stream_history.append(event)
-                            if event.type == "RUN_FINISHED":
+                            if event.type == "run_finished":
                                 break
                     finally:
                         stream.close()
@@ -194,14 +194,14 @@ def test_tool_round_trips_through_the_stream(db_engine):
 
                     persisted = [event.type for event in stream_history if event.seq is not None]
                     assert persisted == [
-                        "RUN_STARTED",
+                        "run_started",
                         "llm_call",
                         "llm_result",
                         "tool_call",
                         "tool_result",
                         "llm_call",
                         "llm_result",
-                        "RUN_FINISHED",
+                        "run_finished",
                     ]
                     assert "message" in types  # the tool round still streams its final text
                     assert run.wait().output == "共 1 个项目"
