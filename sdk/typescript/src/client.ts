@@ -139,7 +139,7 @@ export class Session {
     const watermark = new Map<string, number>();
     const session = this;
     const buffers = new Map<string, string>();
-    const sealed = new Set<string>();
+    const ended = new Set<string>();
 
     // A dropped or silent link reconnects with the cursor; undici surfaces
     // network-level failures as TypeError ("fetch failed" / "terminated").
@@ -174,28 +174,13 @@ export class Session {
             continue;
           }
           const data = payload.data;
-          if (payload.type === "TEXT_MESSAGE_START" || payload.type === "TEXT_MESSAGE_CONTENT" || payload.type === "TEXT_MESSAGE_END") {
-            // Aggregated into message events {text, delta, done}: exactly one
-            // done=true per successful run — sealed by TEXT_MESSAGE_END, or by
-            // RUN_FINISHED's authoritative result when frames were missed
-            // (stream frames are not replayed).
+          if (payload.type === "text_message_start") buffers.set(data.run_id, "");
+          else if (payload.type === "text_message_content") {
             const runId: string = data.run_id;
-            if (payload.type === "TEXT_MESSAGE_START") {
-              buffers.set(runId, "");
-              continue;
-            }
-            if (payload.type === "TEXT_MESSAGE_CONTENT") {
-              const chunk: string = data.delta ?? "";
-              const text = (buffers.get(runId) ?? "") + chunk;
-              buffers.set(runId, text);
-              yield { type: "message", runId, seq: null, data: { text, delta: chunk, done: false } };
-              continue;
-            }
-            const text = buffers.get(runId) ?? "";
-            buffers.delete(runId);
-            sealed.add(runId);
-            yield { type: "message", runId, seq: null, data: { text, delta: "", done: true } };
-            continue;
+            buffers.set(runId, (buffers.get(runId) ?? "") + (data.delta ?? ""));
+          } else if (payload.type === "text_message_end") {
+            buffers.delete(data.run_id);
+            ended.add(data.run_id);
           }
           if (data.seq === undefined) {
             // Stream frames apply directly: no watermark, no cursor.
@@ -206,16 +191,17 @@ export class Session {
           if (seq <= (watermark.get(runId) ?? 0)) continue;
           watermark.set(runId, seq);
           cursor = [runId, seq];
-          if (payload.type === "RUN_FINISHED" && !sealed.has(runId)) {
+          if (payload.type === "run_finished" && !ended.has(runId)) {
             const result = data.result;
             const buffered = buffers.get(runId) ?? "";
             // A string result is the authoritative text; structured results
             // (output_schema) leave the text to what streamed. Nothing
-            // streamed and no text result: no message to seal.
+            // streamed and no text result: nothing to end. Stream frames are
+            // not replayed, so a missed end is synthesized here.
             if (typeof result === "string" || buffered) {
               buffers.delete(runId);
-              sealed.add(runId);
-              yield { type: "message", runId, seq: null, data: { text: typeof result === "string" ? result : buffered, delta: "", done: true } };
+              ended.add(runId);
+              yield { type: "text_message_end", runId, seq: null, data: { run_id: runId, text: typeof result === "string" ? result : buffered } };
             }
           }
           yield { type: payload.type, runId, seq, data };
