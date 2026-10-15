@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { FakeApi } from "./fake.ts";
+import { Http } from "../src/http.ts";
 import { NotFoundError, createClient } from "../src/index.ts";
 import type { Event } from "../src/index.ts";
 
@@ -221,5 +222,35 @@ test("idle silence reconnects with the cursor", async () => {
 
     assert.deepEqual(events.map((event) => event.seq), [1, 2]);
     assert.deepEqual(fake.requests[1].query, { from_run: RUN_ID, from_seq: "1" });
+  });
+});
+
+test("a failed redial keeps retrying with the cursor", async () => {
+  await withFake(async (fake, baseUrl) => {
+    fake.routeRaw(
+      EVENTS,
+      [
+        [stateFrame(RUN_ID), eventFrame(1, "run_started", { content: "hi" })],
+        [stateFrame(RUN_ID), eventFrame(2, "run_finished", { status: "succeeded" })],
+      ],
+      { hold: 0.5 },
+    );
+
+    const realOpen = Http.prototype.openEvents;
+    let calls = 0;
+    Http.prototype.openEvents = async function (...args: Parameters<typeof realOpen>) {
+      calls += 1;
+      if (calls === 2) throw new TypeError("fetch failed"); // the first redial fails
+      return realOpen.apply(this, args);
+    };
+    try {
+      const events = await take(await streamOf(baseUrl, { idleTimeoutMs: 200 }), 2);
+
+      assert.deepEqual(events.map((event) => event.seq), [1, 2]);
+      assert.equal(calls, 3);
+      assert.deepEqual(fake.requests[1].query, { from_run: RUN_ID, from_seq: "1" });
+    } finally {
+      Http.prototype.openEvents = realOpen;
+    }
   });
 });

@@ -139,6 +139,13 @@ export class Session {
     const watermark = new Map<string, number>();
     const session = this;
 
+    // A dropped or silent link reconnects with the cursor; undici surfaces
+    // network-level failures as TypeError ("fetch failed" / "terminated").
+    // Everything else (malformed payloads, bugs) propagates, mirroring the
+    // Python SDK.
+    const transient = (error: unknown): boolean =>
+      error instanceof LinkDroppedError || (error instanceof TypeError && /fetch failed|terminated/.test(error.message));
+
     return (async function* (): AsyncGenerator<Event> {
       try {
         for (;;) {
@@ -146,16 +153,18 @@ export class Session {
           try {
             payload = (await link.next()).payload as { type: string; data: any };
           } catch (error) {
-            // A dropped or silent link reconnects with the cursor; undici
-            // surfaces network-level failures as TypeError ("fetch failed" /
-            // "terminated"). Everything else (malformed payloads, bugs)
-            // propagates, mirroring the Python SDK.
-            if (!(error instanceof LinkDroppedError || (error instanceof TypeError && /fetch failed|terminated/.test(error.message)))) {
-              throw error;
-            }
+            if (!transient(error)) throw error;
             link.close();
-            await sleep(session.client.reconnectDelayMs);
-            link = await connect(cursor);
+            // Redial failures are transient too: keep the cursor and retry.
+            for (;;) {
+              await sleep(session.client.reconnectDelayMs);
+              try {
+                link = await connect(cursor);
+                break;
+              } catch (error) {
+                if (!transient(error)) throw error;
+              }
+            }
             continue;
           }
           if (payload.type === "state") {

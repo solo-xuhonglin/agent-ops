@@ -1,4 +1,5 @@
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Self
 
@@ -92,12 +93,15 @@ class EventStream:
         self._watermark: dict[str, int] = {}
         self._frames = self._open()
 
-    def _open(self):
+    def _open(self) -> Iterator[tuple[str | None, dict]]:
         params = {} if self._cursor is None else {"from_run": self._cursor[0], "from_seq": self._cursor[1]}
         frames = self._session._client._http.events(
             f"/v1/sessions/{self._session.id}/events", params, read_timeout=self._session._client.idle_timeout
         )
-        self._session._adopt_state(next(frames)[1]["data"])  # first frame is always the state push
+        try:
+            self._session._adopt_state(next(frames)[1]["data"])  # first frame is always the state push
+        except StopIteration:  # EOF before the state push: a dead link
+            raise httpx.TransportError("subscription closed before the state push") from None
         return frames
 
     def __iter__(self) -> "EventStream":
@@ -111,7 +115,10 @@ class EventStream:
                 # The stream never ends on its own: EOF is a dropped link.
                 # Silence past the idle timeout surfaces as ReadTimeout here too.
                 time.sleep(self._session._client.reconnect_delay)
-                self._frames = self._open()
+                try:
+                    self._frames = self._open()
+                except httpx.TransportError:  # redial failed: transient, keep the cursor and retry
+                    continue
                 continue
             if payload["type"] == "state":
                 self._session._adopt_state(payload["data"])

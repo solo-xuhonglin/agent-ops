@@ -1,7 +1,9 @@
 import json
 
+import httpx
 import pytest
 from zszc.agentops import NotFoundError, create_client
+from zszc.agentops.http import Http
 
 SESSION_ID = "11111111-1111-1111-1111-111111111111"
 RUN_ID = "33333333-3333-3333-3333-333333333333"
@@ -216,3 +218,46 @@ def test_silence_reconnects_with_cursor(fake):
 
         assert seqs == [1, 2]
         assert fake.requests[1]["query"] == {"from_run": RUN_ID, "from_seq": "1"}
+
+
+def test_failed_redial_keeps_retrying_with_cursor(fake, monkeypatch):
+    with create_client("k", base_url=fake.base_url, reconnect_delay=0.05, idle_timeout=0.2) as client:
+        fake.route_raw(
+            EVENTS,
+            [
+                [(0, state_frame(RUN_ID)), (0, event_frame(1, "run_started", content="hi"))],
+                [(0, state_frame(RUN_ID)), (0, event_frame(2, "run_finished", status="succeeded", result=None))],
+            ],
+            hold=0.5,
+        )
+        real_events = Http.events
+        calls = {"n": 0}
+
+        def flaky_events(self, path, params, *, read_timeout):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise httpx.ConnectError("refused")  # the first redial fails
+            return real_events(self, path, params, read_timeout=read_timeout)
+
+        monkeypatch.setattr(Http, "events", flaky_events)
+        session = client.get_session(SESSION_ID)
+
+        stream = session.stream()
+        seqs = [next(stream).seq for _ in range(2)]
+        stream.close()
+
+        assert seqs == [1, 2]
+        assert calls["n"] == 3
+        assert fake.requests[1]["query"] == {"from_run": RUN_ID, "from_seq": "1"}
+
+
+def test_empty_link_surfaces_as_transport_error(fake, monkeypatch):
+    def dead_events(self, path, params, *, read_timeout):
+        yield from ()  # EOF before the state push
+
+    monkeypatch.setattr(Http, "events", dead_events)
+    with create_client("k", base_url=fake.base_url, reconnect_delay=0.05) as client:
+        session = client.get_session(SESSION_ID)
+
+        with pytest.raises(httpx.TransportError):
+            session.stream()

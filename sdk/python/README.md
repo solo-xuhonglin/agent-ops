@@ -10,14 +10,15 @@ with create_client(key, base_url="http://127.0.0.1:8080") as client:
     session = client.new_session()
     run = session.submit("分析这个项目", params={"project_id": "PRJ-1042"})
 
-    for event in session.stream():  # state 帧与持久事件
+    events = session.stream()  # 返回即订阅就绪，之后只见事件
+    for event in events:
         ...
 
     result = run.wait()  # Result(output)
 ```
 
 - `run.wait(timeout=...)` 单位秒；超时只放弃等待，运行继续，要停就 `run.cancel()`。失败抛 `RunFailed`，取消抛 `RunCancelled`。
-- `session.stream()` 内部按 `(run_id, seq)` 去重，断线自动带游标重连；`from_run` / `from_seq` 可指定续传位置。
+- `session.stream()` 返回即订阅就绪（订阅时的 HTTP 错误在调用处抛出）；内部按 `(run_id, seq)` 去重，state 帧与保活消化在内部，断线与静默自动带游标重连；`from_run` / `from_seq` 可指定续传位置。
 - 异常映射：401 `AuthError`、404 `NotFoundError`、409 `ConflictError`、422 `ContractError`。
 
 测试：`python -m pytest sdk/python/tests`
