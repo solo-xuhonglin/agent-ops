@@ -5,7 +5,7 @@ import urllib.request
 from urllib.parse import urlparse
 
 import pytest
-from util import FakeWorker, live_server
+from util import FakeWorker, live_server, write_log
 
 from manager import internal
 
@@ -436,3 +436,31 @@ def test_subscribe_mid_message_gets_accumulated_catch_up(base_url, auth_headers,
         assert live == (None, {"type": "message_delta", "data": {"run_id": run_id, "text": "第二"}})
     finally:
         worker.close()
+
+
+def test_context_compacted_replays_without_its_summary(base_url, auth_headers, db_engine):
+    key = auth_headers["Authorization"].removeprefix("Bearer ")
+    worker = FakeWorker("w-compact")
+    try:
+        session_id, run_id, _epoch = dispatch_run(base_url, key, worker)
+        write_log(db_engine, run_id, 1, "run_started", {"content": "hi"})
+        write_log(
+            db_engine,
+            run_id,
+            2,
+            "context_compacted",
+            {"summary": "不该外发的摘要全文", "before_tokens": 99, "after_tokens": 9, "compacted_messages": 2},
+        )
+        time.sleep(0.1)
+
+        stream = Sse(base_url, f"/v1/sessions/{session_id}/events", key)
+        try:
+            frames = stream.frames(3)
+        finally:
+            stream.close()
+    finally:
+        worker.close()
+
+    assert [frame[1]["type"] for frame in frames] == ["state", "run_started", "context_compacted"]
+    assert "summary" not in frames[2][1]["data"]
+    assert frames[2][1]["data"]["before_tokens"] == 99

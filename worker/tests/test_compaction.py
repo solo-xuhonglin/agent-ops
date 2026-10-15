@@ -160,3 +160,129 @@ def test_a_huge_system_prompt_alone_does_not_trigger(db_engine):
     items = run_engine(db_engine, dispatch, FakeLlm([(["答"], LlmResult(content="回答"))]))
 
     assert "context_compacted" not in [item["type"] for item in items]
+
+
+def seed_run_with_rows(engine, session_id, *, created_at, rows, epoch=0):
+
+    with Session(engine) as session, session.begin():
+        run = ExecutionRun(
+            session_id=session_id,
+            agent_id=uuid.uuid4(),
+            artifact_id=uuid.uuid4(),
+            request_id=None,
+            content="c",
+            params={"project_id": "P"},
+            epoch=epoch,
+        )
+        run.created_at = created_at
+        session.add(run)
+        session.flush()
+        for seq, type_, action_id, payload in rows:
+            session.add(RunLog(run_id=run.id, seq=seq, action_id=action_id, type=type_, payload=payload))
+        return str(run.id)
+
+
+def test_rebuild_restarts_at_the_compaction_marker(db_engine):
+    from datetime import UTC
+
+    from worker.engine import session_messages
+
+    base = datetime(2026, 10, 15, 10, 0, 0, tzinfo=UTC)
+    with Session(db_engine) as session, session.begin():
+        conversation = ExecutionSession(agent_id=uuid.uuid4())
+        session.add(conversation)
+        session.flush()
+        session_id = conversation.id
+
+    seed_run_with_rows(
+        db_engine,
+        session_id,
+        created_at=base,
+        rows=[
+            (1, "run_started", None, {"content": "远古问题", "params": {}}),
+            (2, "llm_call", "a", {"messages": []}),
+            (3, "llm_result", "a", {"content": "远古回答"}),
+            (4, "run_finished", None, {"status": "succeeded", "result": "远古回答"}),
+        ],
+    )
+    seed_run_with_rows(
+        db_engine,
+        session_id,
+        created_at=base + timedelta(seconds=1),
+        rows=[
+            (1, "run_started", None, {"content": "触发压缩的问题", "params": {}}),
+            (
+                2,
+                "context_compacted",
+                None,
+                {"summary": "远古对话的摘要", "before_tokens": 99, "after_tokens": 9, "compacted_messages": 2},
+            ),
+            (3, "llm_call", "b", {"messages": []}),
+            (4, "llm_result", "b", {"content": "压缩后的回答"}),
+            (5, "run_finished", None, {"status": "succeeded", "result": "压缩后的回答"}),
+        ],
+    )
+    seed_run_with_rows(
+        db_engine,
+        session_id,
+        created_at=base + timedelta(seconds=2),
+        rows=[
+            (1, "run_started", None, {"content": "之后的问题", "params": {}}),
+            (2, "llm_call", "c", {"messages": []}),
+            (3, "llm_result", "c", {"content": "之后的回答"}),
+            (4, "run_finished", None, {"status": "succeeded", "result": "之后的回答"}),
+        ],
+    )
+
+    messages = session_messages(db_engine, str(session_id), SPEC, exclude_run_id="00000000-0000-0000-0000-000000000000")
+
+    assert messages == [
+        {"role": "user", "content": "<历史摘要>\n远古对话的摘要"},
+        {"role": "user", "content": render("触发压缩的问题")},
+        {"role": "assistant", "content": "压缩后的回答"},
+        {"role": "user", "content": render("之后的问题")},
+        {"role": "assistant", "content": "之后的回答"},
+    ]
+
+
+def render(content):
+    from worker.engine import render_user_message
+
+    return render_user_message(content, {}, SPEC)
+
+
+def test_re_dispatch_reuses_the_logged_compaction(db_engine):
+    dispatch = make_dispatch(
+        db_engine,
+        spec_with_limit(token_limit=10_000_000),  # far above: only the logged row may compact
+        exchanges=[("历史一", "回答一"), ("历史二", "回答二")],
+    )
+    # The crash window: compaction row durable, llm_call not.
+    with Session(db_engine) as session, session.begin():
+        run_id = uuid.UUID(dispatch["run_id"])
+        session.add(
+            RunLog(
+                run_id=run_id,
+                seq=1,
+                action_id=None,
+                type="run_started",
+                payload={"content": "新问题", "params": {"project_id": "P"}},
+            )
+        )
+        session.add(
+            RunLog(
+                run_id=run_id,
+                seq=2,
+                action_id=None,
+                type="context_compacted",
+                payload={"summary": "已记录的摘要", "before_tokens": 1, "after_tokens": 1, "compacted_messages": 2},
+            )
+        )
+    llm = FakeLlm([(["答"], LlmResult(content="回答"))])
+
+    items = run_engine(db_engine, dispatch, llm)
+
+    kinds = [item["type"] for item in items if item["kind"] == "row"]
+    assert kinds == ["llm_call", "llm_result", "run_finished"]  # no second compaction
+    assert len(llm.calls) == 1
+    assert "<历史摘要>\n已记录的摘要" in [m["content"] for m in llm.calls[0][0]]

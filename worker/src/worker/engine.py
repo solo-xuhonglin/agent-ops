@@ -59,11 +59,18 @@ def session_messages(engine, session_id: str, spec: AgentSpec, exclude_run_id: s
             rows = session.scalars(select(RunLog).where(RunLog.run_id == run_id).order_by(RunLog.seq)).all()
             started = next((row for row in rows if row.type == EventType.run_started), None)
             last_result = None
+            marker = None
             for row in rows:
                 if row.type == EventType.llm_result:
                     last_result = row
+                elif row.type == EventType.context_compacted:
+                    marker = row
             if started is None or last_result is None:
                 continue
+            if marker is not None:
+                # The summary replaces everything before it (docs/05 §8.4);
+                # the compacting run's own exchange rides after it.
+                messages = [_summary_message(marker.payload["summary"])]
             messages.append(
                 {
                     "role": "user",
