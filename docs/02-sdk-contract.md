@@ -176,7 +176,9 @@ session = client.new_session()
 
 events = session.stream()            # 订阅即建连：返回时已就绪，才不漏流式帧
 session.submit("分析这个项目的进度", params={"project_id": "PRJ-1042"})
-for event in events:                 # 订阅这段对话，空闲时也接着
+for event in events:                 # 只见事件；流式三段 text_message_start/content/end
+    if event.type == "text_message_content":
+        render(event.data["delta"])  # 增量渲染；end 事件带完整权威终文
     ...
 
 session.submit("重点看延期的那几个")
@@ -252,7 +254,7 @@ result = client.get_run(run.id).wait()
 
 ### 6.5 事件
 
-事件描述**这次运行做了什么**，与运行内部的动作一一对应。分两类：
+事件描述**这次运行做了什么**，与运行内部的动作一一对应。全部小写 snake_case，结构对齐行业流式标准（AG-UI / OpenAI Responses / Anthropic）；与 AG-UI 的字面差异（小写拼写、snake_case 字段、无 `messageId`——`run_id` 即配对键）是刻意选择，AG-UI 生态直连走边缘 adapter 做字面映射（见 [11-roadmap.md](./11-roadmap.md) 待定项 19）。分两类：
 
 **持久事件** —— 带序号，可重放：
 
@@ -270,8 +272,11 @@ result = client.get_run(run.id).wait()
 
 | 事件 | 含义 |
 |---|---|
-| `message_started` | 一条新消息开始 —— **清空当前消息缓冲**。重试与断线补发都会重发它 |
-| `message_delta` | 追加文本 |
+| `text_message_start` | 一条新消息开始 —— **清空当前消息缓冲**。重试与断线补发都会重发它 |
+| `text_message_content` | 追加文本（`delta`） |
+| `text_message_end` | 这条消息的终结，**带完整权威终文 `text`**（对齐 OpenAI 的 `response.output_text.done`） |
+
+**SDK 保证每个成功的 run 恰好收到一条 `text_message_end`**：真 `end` 到了就透传；流式帧错过了（不重放——断线、订阅晚、重放场景）由 SDK 从 `run_finished` 的结果合成一条。消费端不需要为「错过增量」写任何兜底。`run_failed` 不合成。
 
 `_call` 与 `_result` 靠**动作 id** 配对 —— 不依赖严格交替（ReAct 一轮可以并发调多个工具，顺序会交错）。**未知事件类型必须忽略**，这样加一种动作类型就是纯增量。
 

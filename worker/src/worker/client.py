@@ -61,8 +61,7 @@ def _pump(dispatch: dict, llm: LlmClient) -> None:
                 "type": item["type"],
                 "data": {"run_id": run_id, "seq": item["seq"], "action_id": item["action_id"], **item["payload"]},
             }
-            # The wire carries log types; the manager projects external names
-            # at its SSE edge (docs/06 §1.2).
+            # The wire carries log types; private fields are stripped here.
             sock.sendall(encode(item["type"], public_event(entry)["data"]))
     except Exception:
         # The run stays open; the sweep re-dispatches it (at-least-once).

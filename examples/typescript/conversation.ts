@@ -1,5 +1,5 @@
 // The conversational pattern (docs/02 §5.1): subscribe to the session,
-// then submit turns and collect deltas from the stream.
+// then submit turns and render the three-part message stream.
 // AGENT_OPS_KEY is required, AGENT_OPS_BASE_URL defaults to the local edge.
 import { createClient } from "@zszc/agentops";
 
@@ -27,23 +27,19 @@ for (const content of ["分析这个项目的进度", "重点看延期的那几�
   const run = await session.submit(content, { params: { project_id: "PRJ-1042" } });
   console.log(`\nrun ${run.id.slice(0, 8)} — ${content}`);
 
-  // Stream frames carry no seq and are best-effort: render them live,
-  // but the terminal event is the authoritative outcome. Manual next():
-  // `for await` + break closes the generator, and this subscription is
-  // reused across turns.
-  let streamed = false;
+  // The three-part message stream prints live: content deltas, then the end
+  // event closes the turn. end.text always carries the full authoritative
+  // text — the SDK synthesizes it from the result when the stream frames
+  // were missed. Manual next(): `for await` + break closes the generator,
+  // and this subscription is reused across turns.
   for (;;) {
     const event = (await events.next()).value!;
-    if (event.type === "message_started") process.stdout.write("  回复: ");
-    else if (event.type === "message_delta") {
-      streamed = true;
-      process.stdout.write(event.data.text);
-    } else if (event.type === "run_finished") {
-      if (streamed) process.stdout.write("\n");
-      else console.log(`  回复: ${event.data.result}`); // subscribed too late for the deltas
+    if (event.type === "text_message_content") process.stdout.write(event.data.delta);
+    else if (event.type === "text_message_end") {
+      process.stdout.write("\n");
       break;
     } else if (event.type === "run_failed") {
-      console.log(`\n  运行失败: ${event.data.error}`);
+      console.log(`运行失败: ${event.data.error}`);
       break;
     }
   }

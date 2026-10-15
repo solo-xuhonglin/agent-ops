@@ -160,7 +160,7 @@ function textFrame(type: string, data: Record<string, unknown> = {}): Buffer {
   return sse({ type, data: { run_id: RUN_ID, ...data } });
 }
 
-test("text frames aggregate into message events", async () => {
+test("three-part message events pass through", async () => {
   await withFake(async (fake, baseUrl) => {
     fake.routeRaw(
       EVENTS,

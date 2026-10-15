@@ -1,5 +1,5 @@
 """The conversational pattern (docs/02 §5.1): subscribe to the session,
-then submit turns and collect deltas from the stream.
+then submit turns and render the three-part message stream.
 
 AGENT_OPS_KEY is required, AGENT_OPS_BASE_URL defaults to the local edge.
 """
@@ -28,23 +28,18 @@ with create_client(key, base_url=base_url) as client:
         run = session.submit(content, params={"project_id": "PRJ-1042"})
         print(f"\nrun {run.id[:8]} — {content}")
 
-        # Stream frames carry no seq and are best-effort: render them live,
-        # but the terminal event is the authoritative outcome.
-        streamed = False
+        # The three-part message stream prints live: content deltas, then the
+        # end event closes the turn. end.text always carries the full
+        # authoritative text — the SDK synthesizes it from the result when
+        # the stream frames were missed.
         for event in events:
-            if event.type == "message_started":
-                print("  回复: ", end="", flush=True)
-            elif event.type == "message_delta":
-                streamed = True
-                print(event.data["text"], end="", flush=True)
-            elif event.type == "run_finished":
-                if streamed:
-                    print()
-                else:  # subscribed too late for the deltas
-                    print(f"  回复: {event.data['result']}")
+            if event.type == "text_message_content":
+                print(event.data["delta"], end="", flush=True)
+            elif event.type == "text_message_end":
+                print()
                 break
             elif event.type == "run_failed":
-                print(f"\n  运行失败: {event.data['error']}")
+                print(f"运行失败: {event.data['error']}")
                 break
 
     events.close()

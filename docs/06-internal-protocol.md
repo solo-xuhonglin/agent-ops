@@ -55,7 +55,7 @@
 
 #### 类型的名字
 
-**只有三种是这份协议定的**：`state` / `dispatch` / `cancel`。**其余一律是事件**，名字直接来自日志类型（见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 第 2 节）。
+**只有三种是这份协议定的**：`state` / `dispatch` / `cancel`。**其余一律是事件**：持久事件的名字直接来自日志类型（见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 第 2 节）；流式事件以 `text_message_*` 为名（无日志类型，见同文 3.3）。线上名与 SDK 面同名，没有投影层。
 
 **不认识一个名字该怎么办，取决于谁收到：**
 
@@ -165,7 +165,7 @@
 
 **顺序不能反。** 反了的话，`manager` 推给客户端的事件可能比库里还新 —— 客户端一断线重连，反而拿到更旧的东西。
 
-**粗粒度事件（`_call` / `_result`）落库；`message_delta` 不落库**，只沿 Run 连接转发（见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 3.3）。
+**粗粒度事件（`_call` / `_result`）落库；`text_message_*` 不落库**，只沿 Run 连接转发（见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 3.3）。
 
 ### 2.4 取消
 
@@ -199,7 +199,7 @@
 
 | 缓存项 | 谁刷新它 | 谁读它 |
 |---|---|---|
-| 活跃 Run 的**累积文本** | `event` 里的 `message_delta` | 订阅时补发（见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 4.2） |
+| 活跃 Run 的**累积文本** | `event` 里的 `text_message_content` | 订阅时补发（见 [05-execution-and-streaming.md](./05-execution-and-streaming.md) 4.2） |
 | **跑到哪一步、什么时候开始的** | Run 连接的 `state` | 判死（见 [11-roadmap.md](./11-roadmap.md) 待定项 15） |
 | **刚从报到里知道的「还在跑的 Run」** | 报到 | 巡检判据（见 2.5） |
 | **刚派发、Run 连接还没建起来的 Run** | 派发 | 巡检判据（见 2.5） |

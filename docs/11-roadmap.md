@@ -80,3 +80,4 @@
 
 17. **统一编译是否引入 LangGraph。** 触发条件：DAG（单元 20）落地。手写循环已承载 ReAct；LangGraph 的价值在图结构与检查点，而运行真相源是本平台的运行日志，检查点与之重叠。引入前先回答「图编译换来什么手写循环给不了」。
 18. **`window_ratio` 何时生效。** 压缩的窗口占比阈值需要 model_id→窗口大小映射，只有真实 provider 能带来；当前仅 `token_limit` 触发，token 数按字符估算（len//4）。
+19. **A2A / AG-UI 边缘 adapter 要不要做。** 事件词汇已对齐 AG-UI 的 UI 路径（docs/02 §6.5）；接入生态还需要边缘端点 —— A2A adapter（Task↔Run、`message:stream`↔SSE 订阅）与 AG-UI `HttpAgent` 端点（POST `RunAgentInput` → AG-UI 事件流）。内部零改动、纯接入层；**做的时机取决于第一个外部 agent 生态或现成 UI 组件要直连的需求**。注意两者的输入模型（客户端携带 tools/state）与「配置在平台、key 决定身份」不同，adapter 里要做映射取舍。

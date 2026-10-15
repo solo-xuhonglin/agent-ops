@@ -54,7 +54,7 @@ def test_non_action_types_ignored():
 
 def test_log_entry_rejects_unknown_type():
     with pytest.raises(ValidationError):
-        LogEntry(run_id=uuid.uuid4(), seq=1, action_id=None, type="message_delta", payload={})
+        LogEntry(run_id=uuid.uuid4(), seq=1, action_id=None, type="bogus", payload={})
 
 
 def test_action_types_require_action_id():
@@ -76,7 +76,7 @@ def test_run_finished_payload_carries_status():
 def test_stream_event_types_ride_the_wire_only():
     from shared.events import STREAM_EVENT_TYPES
 
-    assert STREAM_EVENT_TYPES == ("message_started", "message_delta")
+    assert STREAM_EVENT_TYPES == ("text_message_start", "text_message_content", "text_message_end")
     assert all(name not in {member.value for member in EventType} for name in STREAM_EVENT_TYPES)
 
 

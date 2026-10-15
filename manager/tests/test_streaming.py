@@ -387,7 +387,6 @@ def test_stream_frames_forwarded_without_cursor(base_url, auth_headers, db_engin
             frames.append(frame)
         assert read[0][1]["type"] == "state"
         assert [frame[0] for frame in frames] == [f"{run_id}:1", f"{run_id}:2", None, None, None, f"{run_id}:3"]
-        # Replay rides the wire under the external names (AG-UI vocabulary).
         assert [frames[0][1]["type"], frames[1][1]["type"], frames[5][1]["type"]] == ["run_started", "llm_call", "run_finished"]
         # llm_call rides the wire WITHOUT its messages (引用外发,内容不外发).
         assert "messages" not in frames[1][1]["data"]
