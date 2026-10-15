@@ -37,12 +37,13 @@ def render_user_message(content: str, params: dict, spec: AgentSpec) -> str:
     return f"{block}\n\n{content}"
 
 
-def session_messages(engine, session_id: str, spec: AgentSpec) -> list[dict]:
+def session_messages(engine, session_id: str, spec: AgentSpec, exclude_run_id: str) -> list[dict]:
     """Rebuild the conversation from prior runs' logs (docs/05 §5).
 
     Each prior run contributes its user message (rendered from run_started)
-    and its last assistant message; the current run is not included — the
-    engine adds its own user message on top of this.
+    and its last assistant message. exclude_run_id keeps the current run's
+    own (possibly half-finished) exchange out — the engine adds its user
+    message itself.
     """
     messages: list[dict] = []
     with Session(engine) as session:
@@ -53,6 +54,8 @@ def session_messages(engine, session_id: str, spec: AgentSpec) -> list[dict]:
             )
         ]
         for run_id in run_ids:
+            if run_id == exclude_run_id:
+                continue
             rows = session.scalars(select(RunLog).where(RunLog.run_id == run_id).order_by(RunLog.seq)).all()
             started = next((row for row in rows if row.type == EventType.run_started), None)
             last_result = None
@@ -130,7 +133,7 @@ def execute(engine, dispatch: dict, llm: LlmClient, cancelled: threading.Event):
         action_id = resume.action_id
         messages = resume.payload["messages"]
     else:
-        history = session_messages(engine, dispatch["session_id"], spec)
+        history = session_messages(engine, dispatch["session_id"], spec, str(run_id))
         user_message = render_user_message(dispatch["input"]["content"], dispatch["input"]["params"], spec)
         messages = [
             {"role": "system", "content": spec.instructions},

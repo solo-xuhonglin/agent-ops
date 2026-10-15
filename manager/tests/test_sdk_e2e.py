@@ -15,18 +15,19 @@ def fast_state(monkeypatch):
     monkeypatch.setenv("MANAGER_HOST", "127.0.0.1")
 
 
-def serve_dispatched_run(worker):
+def serve_dispatched_run(monkeypatch_port, worker):
     """The real worker path for one dispatch: pump the engine on a Run connection."""
     type_, dispatch = worker.read()
     assert type_ == "dispatch"
     import os
 
-    os.environ["MANAGER_PORT"] = str(internal.port)
+    os.environ["MANAGER_PORT"] = monkeypatch_port
     _pump(dispatch, FakeLlm([(["你", "好"], LlmResult(content="你好"))]))
 
 
-def test_submit_engine_execution_and_stream_back_to_the_sdk(db_engine):
+def test_submit_engine_execution_and_stream_back_to_the_sdk(db_engine, monkeypatch):
     with live_server() as base:
+        monkeypatch.setenv("MANAGER_PORT", str(internal.port))
         worker = FakeWorker("w-e2e")
         try:
             with create_client(TEST_KEY, base_url=base, poll_interval=0.05) as client:
@@ -41,7 +42,7 @@ def test_submit_engine_execution_and_stream_back_to_the_sdk(db_engine):
                 assert first.type == "state"
                 assert session.current_run is None
 
-                worker_thread = threading.Thread(target=serve_dispatched_run, args=(worker,))
+                worker_thread = threading.Thread(target=serve_dispatched_run, args=(str(internal.port), worker))
                 worker_thread.start()
                 try:
                     types = []

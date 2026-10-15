@@ -24,5 +24,4 @@ with create_client(os.environ["AGENT_OPS_KEY"], base_url=base_url) as client:
             elif event.type == "run_finished":
                 print(flush=True)
                 break
-        result = run.wait()
-        assert result.output == result.output  # the full text, always
+        assert run.wait().output.startswith("fake: ")

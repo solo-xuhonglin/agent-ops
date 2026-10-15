@@ -62,8 +62,9 @@ def _pump(dispatch: dict, llm: LlmClient) -> None:
                 "data": {"run_id": run_id, "seq": item["seq"], "action_id": item["action_id"], **item["payload"]},
             }
             sock.sendall(encode(item["type"], public_event(entry)["data"]))
-    except OSError:
-        log.warning("run connection lost for %s; the sweep re-dispatches it", run_id)
+    except Exception:
+        # The run stays open; the sweep re-dispatches it (at-least-once).
+        log.exception("run path failed for %s", run_id)
     finally:
         sock.close()
         cancel_events.pop(run_id, None)

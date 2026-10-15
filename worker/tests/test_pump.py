@@ -30,7 +30,7 @@ def db_engine(monkeypatch):
         try:
             while True:
                 received.append(read_frame_sync(conn))
-        except (ConnectionError, OSError):
+        except (ConnectionError, OSError, EOFError):
             pass
 
     thread = threading.Thread(target=accept_loop, daemon=True)
@@ -53,7 +53,15 @@ def db_engine(monkeypatch):
         session.flush()
         run_id, session_id = run.id, conversation.id
 
-    yield {"engine": engine, "run_id": str(run_id), "session_id": str(session_id), "frames": received}
+    yield {
+        "engine": engine,
+        "run_id": str(run_id),
+        "session_id": str(session_id),
+        "frames": received,
+        "converge": lambda: (listener.close(), thread.join(timeout=5)),
+    }
+    listener.close()
+    thread.join(timeout=5)
     Base.metadata.drop_all(engine, tables=[ExecutionRun.__table__, ExecutionSession.__table__])
 
 
@@ -68,6 +76,7 @@ def test_pump_persists_rows_and_wires_projected_frames(db_engine):
     llm = FakeLlm([(["回", "答"], LlmResult(content="回答"))])
 
     _pump(dispatch, llm)
+    db_engine["converge"]()  # the reader thread exits on EOF; converge before asserting
 
     names = [(type_, data.get("seq")) for type_, data in db_engine["frames"]]
     assert names == [
@@ -91,3 +100,15 @@ def test_pump_persists_rows_and_wires_projected_frames(db_engine):
         ).all()
     assert [row.type for row in rows] == ["run_started", "llm_call", "llm_result", "run_finished"]
     assert rows[1].payload["messages"][0]["role"] == "system"
+
+
+def test_pump_survives_engine_failures(db_engine):
+    dispatch = {
+        "run_id": db_engine["run_id"],
+        "epoch": 1,
+        "session_id": db_engine["session_id"],
+        "snapshot": {"mode": "bogus", "instructions": ""},
+        "input": {"content": "hello", "params": {"project_id": "P"}, "output_schema": None, "caller": "backend"},
+    }
+
+    _pump(dispatch, FakeLlm())  # a broken snapshot must not escape the pump
