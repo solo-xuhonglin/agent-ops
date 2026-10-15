@@ -125,10 +125,10 @@ def test_stream_frames_yield_without_moving_the_cursor(fake, client):
         [
             [
                 (0, state_frame(RUN_ID)),
-                (0, event_frame(1, "run_started", {"content": "hi"})),
+                (0, event_frame(1, "run_started", content="hi")),
                 (0, sse({"type": "message_delta", "data": {"run_id": RUN_ID, "text": "增量"}})),
             ],
-            [(0, event_frame(2, "run_finished", {"status": "succeeded"}))],
+            [(0, event_frame(2, "run_finished", status="succeeded"))],
         ],
         drop=True,
     )

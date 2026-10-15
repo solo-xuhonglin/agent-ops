@@ -362,19 +362,34 @@ def test_stream_frames_forwarded_without_cursor(base_url, auth_headers, db_engin
             link.stream_frame("message_delta", {"run_id": run_id, "text": "你好"})
             link.event("run_finished", 3, {"status": "succeeded", "result": "你好"}, action_id=None)
             time.sleep(0.3)
-            frames = stream.frames(6)
+            read = []
+            while True:
+                frame = stream.frames(1)[0]
+                read.append(frame)
+                if frame[0] == f"{run_id}:3":
+                    break
         finally:
             stream.close()
             link.close()
 
-        assert frames[0][1]["type"] == "state"
-        assert frames[1][0] == f"{run_id}:1"
-        # llm_call replays WITHOUT its messages (引用外发,内容不外发).
-        assert frames[2][0] == f"{run_id}:2"
-        assert "messages" not in frames[2][1]["data"]
-        assert frames[3] == (None, {"type": "message_started", "data": {"run_id": run_id}})
-        assert frames[4] == (None, {"type": "message_delta", "data": {"run_id": run_id, "text": "你好"}})
-        assert frames[5][0] == f"{run_id}:3"
+        # Read like a conforming client: keepalives interleave, and the
+        # subscribe-before-replay race may duplicate an event — dedup by seq.
+        seen: set[str] = set()
+        frames = []
+        for frame in read:
+            if frame[1]["type"] == "state":
+                continue
+            if frame[0] is not None:
+                if frame[0] in seen:
+                    continue
+                seen.add(frame[0])
+            frames.append(frame)
+        assert read[0][1]["type"] == "state"
+        assert [frame[0] for frame in frames] == [f"{run_id}:1", f"{run_id}:2", None, None, f"{run_id}:3"]
+        # llm_call rides the wire WITHOUT its messages (引用外发,内容不外发).
+        assert "messages" not in frames[1][1]["data"]
+        assert frames[2] == (None, {"type": "message_started", "data": {"run_id": run_id}})
+        assert frames[3] == (None, {"type": "message_delta", "data": {"run_id": run_id, "text": "你好"}})
         # terminal clears the accumulation buffer
         assert run_id not in internal.message_buffers
     finally:
@@ -396,22 +411,28 @@ def test_subscribe_mid_message_gets_accumulated_catch_up(base_url, auth_headers,
 
             stream = Sse(base_url, f"/v1/sessions/{session_id}/events", key)
             try:
-                frames = stream.frames(5)
+                read = []
+                while True:
+                    frame = stream.frames(1)[0]
+                    read.append(frame)
+                    if frame[1]["type"] == "message_delta":
+                        break
                 link.stream_frame("message_delta", {"run_id": run_id, "text": "第二"})
-                live = stream.frames(1)
+                live = None
+                while True:
+                    frame = stream.frames(1)[0]
+                    if frame[1]["type"] != "state":
+                        live = frame
+                        break
             finally:
                 stream.close()
         finally:
             link.close()
 
-        assert [frame[1]["type"] for frame in frames] == [
-            "state",
-            "run_started",
-            "llm_call",
-            "message_started",
-            "message_delta",
-        ]
-        assert frames[4][1]["data"]["text"] == "第一"
-        assert live == [(None, {"type": "message_delta", "data": {"run_id": run_id, "text": "第二"}})]
+        frames = [frame for frame in read if frame[1]["type"] != "state"]
+        assert read[0][1]["type"] == "state"
+        assert [frame[1]["type"] for frame in frames] == ["run_started", "llm_call", "message_started", "message_delta"]
+        assert frames[3][1]["data"]["text"] == "第一"
+        assert live == (None, {"type": "message_delta", "data": {"run_id": run_id, "text": "第二"}})
     finally:
         worker.close()
