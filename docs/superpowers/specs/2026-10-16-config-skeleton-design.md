@@ -7,7 +7,7 @@
 
 ## 1. 意图
 
-阶段 C 的七个领域单元（iam、tool/skill、secrets、agent、release、导入导出）都长在 config 服务上。本单元先立骨架：账号与登录会话、RBAC 判定、audit 追加、按领域挂路由的结构、nginx 接入。此后每个领域单元只做「建表 + 挂路由」，不再动横切。路线图上原单元 10（iam 领域）与单元 11（API 骨架）对调，骨架先行；iam 的领域部分（邀请、配额、软删除、成员管理 API）顺延。
+阶段 C 的七个领域单元（iam、tool/skill、secrets、agent、release、导入导出）都长在 config 服务上。本单元先立骨架：账号与登录会话、RBAC 判定、按领域挂路由的结构、nginx 接入。此后每个领域单元只做「建表 + 挂路由」，不再动会话与判权横切。路线图上原单元 10（iam 领域）与单元 11（API 骨架）对调，骨架先行；iam 的领域部分（邀请、配额、软删除、成员管理 API、audit 追加）顺延。
 
 ## 2. 范围
 
@@ -16,12 +16,11 @@
 - 最小账号模型：平台级账号（邮箱全平台唯一 + 口令哈希）、成员关系（账号 × 租户 × 三角色）。这是登录与判权绕不开的最小集。
 - auth 端点：登录、登出、查当前会话、切换当前团队。
 - RBAC：声明式依赖挂在端点上，最低角色语义（viewer < editor < admin）。
-- audit：`audit_entries` 表 + 同事务追加 helper，本单元由 auth 的写操作真实使用。
 - 路由骨架：统一 `/api` 前缀，`routers/` 按领域一文件，本单元只有 `auth`。
 - nginx：新增 `/api/` → config。
 - 种子：环境变量引导首个管理员。
 
-**不做：** 领域端点（tool / skill / secrets / agent / release / 导入导出）、邀请流程、配额与用量、软删除、web UI。
+**不做：** 领域端点（tool / skill / secrets / agent / release / 导入导出）、邀请流程、配额与用量、软删除、audit（`audit_entries` 表与同事务追加 helper，随 iam 单元落地）、web UI。
 
 ## 3. 已定决策
 
@@ -34,12 +33,12 @@
 | CSRF | SameSite=Lax + 非安全方法校验 Origin 头 |
 | 口令哈希 | Argon2id（`argon2-cffi`） |
 | 管理员引导 | `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`；启动时库中无账号才建：平台账号 + 默认租户的 admin 成员。与 `SEED_AGENT_KEY` 同构 |
-| audit | 同事务追加：`record_audit(session, actor, tenant, action, subject, detail)`；所有写操作与登录/登出都记；detail 为端点自定的 JSON |
+| audit | 本单元不做；落地时同事务追加（`record_audit(session, actor, tenant, action, subject, detail)`，所有写操作与登录/登出都记），随 iam 单元实施 |
 | 边缘分流 | `/` → web、`/v1/` → manager（均现状不动）；新增 `/api/` → config |
 
 ## 4. 约束
 
-- 每表唯一写者：accounts / memberships / sessions / audit_entries（config 侧）均由 config 服务建表与写入（[03-domain-model.md](../../03-domain-model.md) 4.7 规则 7；audit 按设计多写者，本单元只有 config 写）。
+- 每表唯一写者：accounts / memberships / sessions（config 侧）均由 config 服务建表与写入（[03-domain-model.md](../../03-domain-model.md) 4.7 规则 7）。
 - 测试只连 `agentops_test` 库。
 - 无外键，schema 变更靠重建数据库（开发期）。
 
