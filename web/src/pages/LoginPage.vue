@@ -116,7 +116,7 @@ async function submit() {
 
 .card {
   width: min(380px, 100%);
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--hairline);
   border-radius: 4px;
   padding: var(--sp-8);
@@ -146,7 +146,7 @@ async function submit() {
   place-items: center;
   height: 44px;
   background: var(--ink);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 13px;
   letter-spacing: 0.3em;
   text-indent: 0.3em;
@@ -157,6 +157,11 @@ async function submit() {
 
 .go:hover {
   background: var(--accent);
+}
+
+.go:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .go:disabled {

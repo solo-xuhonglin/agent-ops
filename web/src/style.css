@@ -7,8 +7,11 @@
   --accent: #4b1d7e;
   --accent-soft: #efe9f7;
   --canvas: #f5f6f8;
-  --brand-panel: #3b1370;
+  --surface: #ffffff;
+  --on-accent: #ffffff;
   --chip-editor: #2e63cd;
+  --chip-editor-bg: rgba(46, 99, 205, 0.08);
+  --chip-readonly-bg: rgba(0, 0, 0, 0.055);
   --font-serif: Georgia, 'STZhongsong', SimSun, serif;
   --font-mono: 'Cascadia Code', Consolas, monospace;
   --sp-1: 4px;

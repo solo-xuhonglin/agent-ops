@@ -179,14 +179,14 @@ const currentTeam = computed(() =>
   height: 22px;
   border-radius: 50%;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   display: grid;
   place-items: center;
   font-size: 11px;
 }
 
 .workspace {
-  background: #fff;
+  background: var(--surface);
 }
 
 .page-pad {

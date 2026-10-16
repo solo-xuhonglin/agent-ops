@@ -72,12 +72,12 @@ const currentTeam = computed(() =>
 }
 
 .role-chip.editor {
-  background: rgba(46, 99, 205, 0.08);
+  background: var(--chip-editor-bg);
   color: var(--chip-editor);
 }
 
 .role-chip.viewer {
-  background: rgba(0, 0, 0, 0.055);
+  background: var(--chip-readonly-bg);
   color: var(--ink-2);
 }
 </style>
