@@ -11,7 +11,7 @@
 
 ## 1. 路线图
 
-小步迭代：每个单元以可运行的测试收口，顺序即依赖序。已完成：骨架（六容器 Docker 拓扑）、单元 1（config 接库）、单元 2（shared spec 模型与事件词汇表、按写者建表、种子）、单元 3（contract v1 + manager HTTP 面）、单元 4（内部协议 + worker 桩执行）、单元 5（事件推流）、单元 6（两个 SDK 并列收口）—— 阶段 A 完成；单元 7（ReAct 引擎：手写循环、fake LLM、流式增量、日志重建续跑）、单元 8（上下文压缩：阈值触发 LLM 摘要、context_compacted 落库不外发、重建从标记重启）、单元 9（HTTP 工具：Tool spec 模型、参数模板、凭据占位（v1 解析器=环境变量 `CREDENTIAL_<名称>`，单元 14 换 secrets 存储）、响应裁剪按字节、幂等键 `run_id:action_id`、工具循环与 max_iterations）—— 阶段 B 完成；单元 10（`config` API 骨架：最小账号表（Argon2id 口令）、登录会话（HttpOnly Cookie、7 天滑动、多端并发）、RBAC 最低角色依赖（判权实时读成员关系）、种子管理员、`/api/` 边缘分流）—— 阶段 C 骨架先行，iam 领域顺延为单元 12（各领域单元自带配置 UI 页面）、`audit` 追加随之落地。worker 的模型调用当前只有 fake provider（`LLM_PROVIDER` 默认 `fake`），真实 provider 适配随配置与凭据阶段落地；快照、key、租户、管理员等由种子数据落库，配置系统（10–17）建成后由真实流程逐个替换种子。
+小步迭代：每个单元以可运行的测试收口，顺序即依赖序。已完成：骨架（六容器 Docker 拓扑）、单元 1（config 接库）、单元 2（shared spec 模型与事件词汇表、按写者建表、种子）、单元 3（contract v1 + manager HTTP 面）、单元 4（内部协议 + worker 桩执行）、单元 5（事件推流）、单元 6（两个 SDK 并列收口）—— 阶段 A 完成；单元 7（ReAct 引擎：手写循环、fake LLM、流式增量、日志重建续跑）、单元 8（上下文压缩：阈值触发 LLM 摘要、context_compacted 落库不外发、重建从标记重启）、单元 9（HTTP 工具：Tool spec 模型、参数模板、凭据占位（v1 解析器=环境变量 `CREDENTIAL_<名称>`，单元 14 换 secrets 存储）、响应裁剪按字节、幂等键 `run_id:action_id`、工具循环与 max_iterations）—— 阶段 B 完成；单元 10（`config` API 骨架：最小账号表（Argon2id 口令）、登录会话（HttpOnly Cookie、7 天滑动、多端并发）、RBAC 最低角色依赖（判权实时读成员关系）、种子管理员、`/api/` 边缘分流）、单元 11（web 骨架 + 登录：Vite 工程（Vue 3.5 + Vuetify 4 + TanStack Query、pnpm）、紫色主题布局壳（侧栏 / 顶栏 / 内容区）、登录 / 登出 / 切换团队接真实 auth、web 多阶段自构建镜像 + history 回退）—— 阶段 C 骨架与 UI 壳就位，iam 领域顺延为单元 12（各领域单元自带配置 UI 页面，前后端一起交付）、`audit` 追加随之落地。worker 的模型调用当前只有 fake provider（`LLM_PROVIDER` 默认 `fake`），真实 provider 适配随配置与凭据阶段落地；快照、key、租户、管理员等由种子数据落库，配置系统（10–17）建成后由真实流程逐个替换种子。
 
 ### 阶段 A：SDK 链路
 
