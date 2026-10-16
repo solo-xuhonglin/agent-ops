@@ -99,9 +99,9 @@ def logout(request: Request, response: Response) -> None:
 @router.post("/switch-team")
 def switch_team(body: SwitchTeamBody, request: Request, response: Response) -> dict:
     token = request.cookies.get(SESSION_COOKIE)
-    digest = hashlib.sha256(token.encode()).hexdigest()
     with Session(db.engine, expire_on_commit=False) as session, session.begin():
         context = resolve_auth(session, token)
+        digest = hashlib.sha256(token.encode()).hexdigest()
         member = session.scalar(
             select(Membership).where(
                 Membership.account_id == context.account.id, Membership.tenant_id == body.tenant_id

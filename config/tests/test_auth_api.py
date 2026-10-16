@@ -137,6 +137,14 @@ def test_switch_team_updates_current_membership():
     assert rejected.json()["error"]["code"] == "forbidden"
 
 
+def test_switch_team_without_cookie_rejected():
+    with client() as c:
+        response = c.post("/api/auth/switch-team", json={"tenant_id": str(uuid.uuid4())})
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "auth"
+
+
 def test_second_login_keeps_a_concurrent_session():
     tenant_ids = make_teams(1)
     email = make_account([(tenant_ids[0], "admin")])
