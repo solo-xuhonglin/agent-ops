@@ -38,9 +38,9 @@ async function submit() {
     </aside>
 
     <main class="form-side">
-      <form class="card" @submit.prevent="submit">
-        <div class="micro-label num-label">NO. 01 — ACCESS</div>
-        <h2 class="display-serif heading">登录</h2>
+      <form class="card form-stack" @submit.prevent="submit">
+        <div class="micro-label num">NO. 01 — ACCESS</div>
+        <h2 class="page-title">登录</h2>
 
         <v-text-field
           v-model="email"
@@ -48,7 +48,6 @@ async function submit() {
           type="email"
           autocomplete="username"
           variant="underlined"
-          density="comfortable"
         />
         <v-text-field
           v-model="password"
@@ -56,7 +55,6 @@ async function submit() {
           type="password"
           autocomplete="current-password"
           variant="underlined"
-          density="comfortable"
         />
 
         <v-alert v-if="errorMessage" type="error" variant="tonal" density="compact" class="error">
@@ -82,7 +80,6 @@ async function submit() {
   flex-direction: column;
   justify-content: center;
   padding: 0 10%;
-  position: relative;
 }
 
 .mark {
@@ -93,8 +90,8 @@ async function submit() {
 
 .zh {
   margin-top: var(--sp-3);
-  font-size: 14px;
-  letter-spacing: 0.55em;
+  font-size: 13px;
+  letter-spacing: 0.18em;
   color: var(--ink-2);
 }
 
@@ -122,20 +119,6 @@ async function submit() {
   padding: var(--sp-8);
 }
 
-.num-label {
-  font-family: var(--font-mono);
-  margin-bottom: var(--sp-1);
-}
-
-.heading {
-  font-size: 18px;
-  margin-bottom: var(--sp-5);
-}
-
-.card :deep(.v-text-field) {
-  margin-bottom: var(--sp-4);
-}
-
 .error {
   margin-bottom: var(--sp-4);
 }
@@ -144,19 +127,21 @@ async function submit() {
   all: unset;
   display: grid;
   place-items: center;
+  width: 100%;
   height: 44px;
-  background: var(--ink);
+  background: var(--accent);
   color: var(--on-accent);
   font-size: 13px;
   letter-spacing: 0.3em;
   text-indent: 0.3em;
+  border-radius: 4px;
   margin-top: var(--sp-5);
   cursor: pointer;
   transition: background 0.18s ease;
 }
 
 .go:hover {
-  background: var(--accent);
+  background: var(--accent-deep);
 }
 
 .go:focus-visible {

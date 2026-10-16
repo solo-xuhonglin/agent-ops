@@ -4,6 +4,12 @@ import { createVuetify } from 'vuetify'
 
 export default createVuetify({
   icons: { defaultSet: 'mdi', aliases, sets: { mdi } },
+  defaults: {
+    VAppBar: { flat: true, height: 52 },
+    VList: { density: 'compact' },
+    VTextField: { density: 'comfortable' },
+    VBtn: { flat: true, height: 40 },
+  },
   theme: {
     defaultTheme: 'light',
     themes: {

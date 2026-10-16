@@ -31,7 +31,7 @@ const currentTeam = computed(() =>
       <div class="brand-sub micro-label">配置中心</div>
     </div>
 
-    <v-list density="compact" class="nav">
+    <v-list class="nav">
       <div class="micro-label nav-group">配置</div>
       <v-list-item
         prepend-icon="mdi-home-outline"
@@ -39,33 +39,26 @@ const currentTeam = computed(() =>
         :to="{ name: 'home' }"
       />
     </v-list>
-
-    <template #append>
-      <v-list density="compact" class="nav">
-        <v-list-item
-          :prepend-icon="drawer ? 'mdi-chevron-left' : 'mdi-chevron-right'"
-          :title="drawer ? '收起侧栏' : undefined"
-          @click="drawer = !drawer"
-        />
-      </v-list>
-    </template>
   </v-navigation-drawer>
 
-  <v-app-bar flat height="52" class="topbar">
+  <v-app-bar class="topbar">
     <v-app-bar-nav-icon @click="drawer = !drawer" />
     <div class="crumb">配置 / <b>{{ route.meta.title }}</b></div>
     <v-spacer />
-    <span v-if="currentTeam" class="teamtag">{{ currentTeam.tenant_name }} 团队</span>
     <v-menu>
       <template #activator="{ props }">
         <button v-bind="props" class="userchip">
           <span class="av">{{ initial }}</span>
+          <span v-if="currentTeam" class="team">{{ currentTeam.tenant_name }} ·</span>
           <span class="email">{{ session?.account.email }}</span>
           <v-icon size="18" icon="mdi-chevron-down" />
         </button>
       </template>
-      <v-list density="compact" min-width="248" class="user-menu">
-        <v-list-item :title="session?.account.email ?? ''" subtitle="当前账号" />
+      <v-list min-width="248" class="user-menu">
+        <div class="menu-head">
+          <div class="micro-label">当前账号</div>
+          <div class="menu-email">{{ session?.account.email }}</div>
+        </div>
         <v-divider />
         <template v-if="session?.teams.length">
           <div class="micro-label menu-group">切换团队</div>
@@ -147,14 +140,6 @@ const currentTeam = computed(() =>
   font-weight: 500;
 }
 
-.teamtag {
-  font-size: 10.5px;
-  color: var(--accent);
-  border: 1px solid var(--accent);
-  padding: 2px var(--sp-2);
-  border-radius: 4px;
-}
-
 .userchip {
   display: inline-flex;
   align-items: center;
@@ -164,7 +149,11 @@ const currentTeam = computed(() =>
   font-size: 12.5px;
   color: var(--ink-2);
   cursor: pointer;
-  padding: var(--sp-1) var(--sp-1);
+  padding: var(--sp-1);
+}
+
+.userchip .team {
+  color: var(--ink);
 }
 
 .userchip .email {
@@ -194,12 +183,17 @@ const currentTeam = computed(() =>
   max-width: 1200px;
 }
 
-.menu-group {
-  padding: var(--sp-2) var(--sp-4) var(--sp-1);
+.menu-head {
+  padding: var(--sp-3) var(--sp-4) var(--sp-2);
 }
 
-.user-menu :deep(.v-list-item--active) {
-  color: var(--accent);
-  background: var(--accent-soft);
+.menu-email {
+  font-size: 13.5px;
+  color: var(--ink);
+  margin-top: 2px;
+}
+
+.menu-group {
+  padding: var(--sp-2) var(--sp-4) var(--sp-1);
 }
 </style>
