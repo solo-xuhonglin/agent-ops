@@ -254,7 +254,7 @@ result = client.get_run(run.id).wait()
 
 ### 6.5 事件
 
-事件描述**这次运行做了什么**，与运行内部的动作一一对应。全部小写 snake_case，结构对齐行业流式标准（AG-UI / OpenAI Responses / Anthropic）；与 AG-UI 的字面差异（小写拼写、snake_case 字段、无 `messageId`——`run_id` 即配对键）是刻意选择，AG-UI 生态直连走边缘 adapter 做字面映射（见 [11-roadmap.md](./11-roadmap.md) 待定项 19）。分两类：
+事件描述**这次运行做了什么**，与运行内部的动作一一对应。全部小写 snake_case，结构对齐行业流式标准（AG-UI / OpenAI Responses / Anthropic）；与 AG-UI 的字面差异（小写拼写、snake_case 字段、无 `messageId`——`run_id` 即配对键）是刻意选择，AG-UI 生态直连走边缘 adapter 做字面映射（见 [11-roadmap.md](./11-roadmap.md) 待定项 18）。分两类：
 
 **持久事件** —— 带序号，可重放：
 

@@ -26,6 +26,9 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-agentops}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-agentops}
       # The seed key is hashed before it is ever stored.
       SEED_AGENT_KEY: ${SEED_AGENT_KEY:?set SEED_AGENT_KEY in .env}
+      # The bootstrap admin is created only while the account table is empty.
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:?set SEED_ADMIN_EMAIL in .env}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:?set SEED_ADMIN_PASSWORD in .env}
 
   worker:
     build:
@@ -80,6 +83,7 @@ services:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - web
+      - config
 
 volumes:
   pgdata:

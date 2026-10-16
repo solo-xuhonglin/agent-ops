@@ -191,7 +191,7 @@
 
 **不藏这条**：外部系统不支持幂等键时，重复副作用是真会发生的。这是 at-least-once 的定义，不是缺陷。
 
-**重试有上限**，超了把 Run 判 `failed`。取值见 [11-roadmap.md](./11-roadmap.md) 待定项 12。
+**重试有上限**，超了把 Run 判 `failed`。取值见 [11-roadmap.md](./11-roadmap.md) 待定项 11。
 
 重试时重新写一行 `_call`：**`seq` 是新的，`action_id` 不变**。客户端因此收到一次新的 `text_message_start`，自然清空缓冲；幂等键也保持不变。
 

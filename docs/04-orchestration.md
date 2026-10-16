@@ -72,7 +72,7 @@ Agent 的编排方式决定它内部怎么走：
 - `react` → 手写循环：从日志重建会话上下文 → LLM 调用（流式增量）→ 终态（`worker/engine.py`）。
 - `dag` → 从节点与边编译：每个节点对应引擎的一个步骤，条件节点选择走向。
 
-是否在 DAG 落地时引入图编译框架（如 LangGraph），见 [11-roadmap.md](./11-roadmap.md) 待定项 17。
+是否在 DAG 落地时引入图编译框架（如 LangGraph），见 [11-roadmap.md](./11-roadmap.md) 待定项 16。
 
 ---
 
