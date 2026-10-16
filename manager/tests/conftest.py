@@ -25,7 +25,7 @@ engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)
 def schema():
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine, tables=MANAGER_TABLES + CONFIG_TABLES + [RunLog.__table__])
-    seed(engine, TEST_KEY)
+    seed(engine, TEST_KEY, "suite@example.com", "suite-admin-pw")
     yield
 
 
