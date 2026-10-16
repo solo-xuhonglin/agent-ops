@@ -1,19 +1,21 @@
 import hashlib
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+from typing import Annotated
 
 import pytest
+from config.auth import SESSION_COOKIE, AuthContext, create_auth_session, require_account, require_role
+from config.errors import ApiError
+from config.security import hash_password
 from fastapi import Depends, FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
-from shared.models import Account, AuthSession as AuthSessionModel, Membership, Tenant
+from shared.models import Account, Membership, Tenant
+from shared.models import AuthSession as AuthSessionModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from config import db
-from config.auth import SESSION_COOKIE, create_auth_session, require_account, require_role
-from config.errors import ApiError
-from config.security import hash_password
 
 
 def make_member(role: str) -> str:
@@ -42,11 +44,11 @@ def client() -> TestClient:
         return JSONResponse(status_code=exc.status_code, content={"error": {"code": exc.code, "message": exc.message}})
 
     @app.get("/who")
-    def who(context=Depends(require_account)):
+    def who(context: Annotated[AuthContext, Depends(require_account)]):
         return {"email": context.account.email, "tenant_id": str(context.tenant_id), "role": context.role}
 
     @app.get("/edit")
-    def edit(context=Depends(require_role("editor"))):
+    def edit(context: Annotated[AuthContext, Depends(require_role("editor"))]):
         return {"role": context.role}
 
     return TestClient(app)
@@ -77,7 +79,7 @@ def test_expired_session_rejected(client):
                 AuthSessionModel.token_hash == hashlib.sha256(token.encode()).hexdigest()
             )
         )
-        row.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        row.expires_at = datetime.now(UTC) - timedelta(seconds=1)
 
     assert call(client, "/who", token) == "auth"
 

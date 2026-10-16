@@ -2,7 +2,7 @@ import hashlib
 import secrets
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import Request
 from shared.models import Account, AuthSession, Membership
@@ -32,7 +32,7 @@ def create_auth_session(session: Session, account_id: uuid.UUID, current_tenant_
             token_hash=hashlib.sha256(token.encode()).hexdigest(),
             account_id=account_id,
             current_tenant_id=current_tenant_id,
-            expires_at=datetime.now(timezone.utc) + SESSION_TTL,
+            expires_at=datetime.now(UTC) + SESSION_TTL,
         )
     )
     return token
@@ -50,11 +50,11 @@ def resolve_auth(session: Session, token: str | None) -> AuthContext:
         raise ApiError(401, "auth", "missing session")
     digest = hashlib.sha256(token.encode()).hexdigest()
     auth_session = session.scalar(select(AuthSession).where(AuthSession.token_hash == digest))
-    if auth_session is None or auth_session.expires_at <= datetime.now(timezone.utc):
+    if auth_session is None or auth_session.expires_at <= datetime.now(UTC):
         raise ApiError(401, "auth", "invalid session")
 
     # Sliding expiry; committed with the caller's transaction.
-    auth_session.expires_at = datetime.now(timezone.utc) + SESSION_TTL
+    auth_session.expires_at = datetime.now(UTC) + SESSION_TTL
 
     account = session.get(Account, auth_session.account_id)
     tenant_id = None

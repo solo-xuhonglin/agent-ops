@@ -1,6 +1,6 @@
 import hashlib
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from shared.models import Account, AuthSession, Membership, Tenant
@@ -65,7 +65,7 @@ def test_account_membership_session_round_trip():
                     token_hash=token_hash,
                     account_id=account.id,
                     current_tenant_id=tenant.id,
-                    expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+                    expires_at=datetime.now(UTC) + timedelta(days=7),
                 ),
             ]
         )
