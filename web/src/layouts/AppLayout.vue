@@ -1,14 +1,21 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import { useLogout, useSessionQuery, useSwitchTeam } from '../composables/useSession'
 
 const drawer = ref(true)
 const route = useRoute()
+const router = useRouter()
 const { data: session } = useSessionQuery()
 const switchTeam = useSwitchTeam()
 const logout = useLogout()
+
+// A session that dies mid-page (expired, revoked) sends the user back to
+// login; the router guard only covers cold loads.
+watch(session, (value, previous) => {
+  if (previous && !value) router.push({ name: 'login' })
+})
 
 const ROLE_LABELS: Record<string, string> = { admin: '管理员', editor: '编辑', viewer: '只读' }
 </script>
