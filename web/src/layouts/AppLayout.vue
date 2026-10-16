@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useLogout, useSessionQuery, useSwitchTeam } from '../composables/useSession'
@@ -18,54 +18,63 @@ watch(session, (value, previous) => {
 })
 
 const ROLE_LABELS: Record<string, string> = { admin: '管理员', editor: '编辑', viewer: '只读' }
+const initial = computed(() => session.value?.account.email.charAt(0).toUpperCase() ?? '')
+const currentTeam = computed(() =>
+  session.value?.teams.find((team) => team.tenant_id === session.value?.current_tenant_id),
+)
 </script>
 
 <template>
-  <v-navigation-drawer v-model="drawer">
-    <div class="brand ma-4">
-      <div class="brand-name">AgentOps</div>
-      <div class="brand-sub text-medium-emphasis">配置中心</div>
+  <v-navigation-drawer v-model="drawer" width="232" class="shell-drawer">
+    <div class="brand">
+      <div class="brand-word display-serif">AgentOps</div>
+      <div class="brand-sub micro-label">配置中心</div>
     </div>
 
-    <v-list nav density="compact">
-      <v-list-subheader>配置</v-list-subheader>
+    <v-list density="compact" class="nav">
+      <div class="micro-label nav-group">配置</div>
       <v-list-item
         prepend-icon="mdi-home-outline"
         title="配置首页"
         :to="{ name: 'home' }"
-        rounded="lg"
       />
     </v-list>
 
     <template #append>
-      <v-divider />
-      <v-list-item
-        :prepend-icon="drawer ? 'mdi-chevron-left' : 'mdi-chevron-right'"
-        :title="drawer ? '收起侧栏' : undefined"
-        @click="drawer = !drawer"
-      />
+      <v-list density="compact" class="nav">
+        <v-list-item
+          :prepend-icon="drawer ? 'mdi-chevron-left' : 'mdi-chevron-right'"
+          :title="drawer ? '收起侧栏' : undefined"
+          @click="drawer = !drawer"
+        />
+      </v-list>
     </template>
   </v-navigation-drawer>
 
-  <v-app-bar flat border>
+  <v-app-bar flat height="52" class="topbar">
     <v-app-bar-nav-icon @click="drawer = !drawer" />
-    <v-breadcrumbs :items="[String(route.meta.title ?? '')]" />
+    <div class="crumb">配置 / <b>{{ route.meta.title }}</b></div>
     <v-spacer />
+    <span v-if="currentTeam" class="teamtag">{{ currentTeam.tenant_name }} 团队</span>
     <v-menu>
       <template #activator="{ props }">
-        <v-btn v-bind="props" icon="mdi-account-circle" />
+        <button v-bind="props" class="userchip">
+          <span class="av">{{ initial }}</span>
+          <span class="email">{{ session?.account.email }}</span>
+          <v-icon size="18" icon="mdi-chevron-down" />
+        </button>
       </template>
-      <v-list density="compact" min-width="240">
+      <v-list density="compact" min-width="248" class="user-menu">
         <v-list-item :title="session?.account.email ?? ''" subtitle="当前账号" />
         <v-divider />
         <template v-if="session?.teams.length">
-          <v-list-subheader>切换团队</v-list-subheader>
+          <div class="micro-label menu-group">切换团队</div>
           <v-list-item
-            v-for="team in session?.teams"
+            v-for="team in session.teams"
             :key="team.tenant_id"
             :title="team.tenant_name"
             :subtitle="ROLE_LABELS[team.role] ?? team.role"
-            :active="team.tenant_id === session?.current_tenant_id"
+            :active="team.tenant_id === session.current_tenant_id"
             @click="switchTeam.mutate(team.tenant_id)"
           />
         </template>
@@ -76,21 +85,121 @@ const ROLE_LABELS: Record<string, string> = { admin: '管理员', editor: '编�
     </v-menu>
   </v-app-bar>
 
-  <v-main>
-    <v-container fluid>
+  <v-main class="workspace">
+    <div class="page-pad">
       <router-view />
-    </v-container>
+    </div>
   </v-main>
 </template>
 
 <style scoped>
-.brand-name {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: rgb(var(--v-theme-primary));
+.shell-drawer {
+  border-right: 1px solid var(--hairline);
+}
+
+.brand {
+  padding: var(--sp-6) var(--sp-5) var(--sp-6);
+}
+
+.brand-word {
+  color: var(--accent);
 }
 
 .brand-sub {
-  font-size: 0.8rem;
+  margin-top: var(--sp-1);
+}
+
+.nav-group {
+  padding: 0 var(--sp-5);
+  margin-bottom: var(--sp-2);
+}
+
+.nav :deep(.v-list-item) {
+  margin: 0 var(--sp-2);
+  padding-inline: var(--sp-3);
+  min-height: 36px;
+  border-radius: 4px;
+  color: var(--ink-2);
+}
+
+.nav :deep(.v-list-item:hover) {
+  color: var(--ink);
+}
+
+.nav :deep(.v-list-item--active) {
+  color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.topbar {
+  border-bottom: 1px solid var(--hairline);
+  gap: var(--sp-3);
+}
+
+.crumb {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.crumb b {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.teamtag {
+  font-size: 10.5px;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 2px var(--sp-2);
+  border-radius: 4px;
+}
+
+.userchip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  border: none;
+  background: transparent;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  cursor: pointer;
+  padding: var(--sp-1) var(--sp-1);
+}
+
+.userchip .email {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.userchip .av {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+}
+
+.workspace {
+  background: #fff;
+}
+
+.page-pad {
+  padding: var(--sp-6) var(--sp-8);
+  max-width: 1200px;
+}
+
+.menu-group {
+  padding: var(--sp-2) var(--sp-4) var(--sp-1);
+}
+
+.user-menu :deep(.v-list-item--active) {
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 </style>
