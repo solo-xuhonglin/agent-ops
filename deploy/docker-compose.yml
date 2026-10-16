@@ -66,13 +66,13 @@ services:
       timeout: 3s
       retries: 10
 
-  # Serves the config UI's static assets; the edge nginx below is the only
+  # Builds the config UI's static assets; the edge nginx below is the only
   # container with a published port.
   web:
-    image: nginx:1.29-alpine
+    build:
+      context: ..
+      dockerfile: web/Dockerfile
     restart: unless-stopped
-    volumes:
-      - ../web:/usr/share/nginx/html:ro
 
   nginx:
     image: nginx:1.29-alpine

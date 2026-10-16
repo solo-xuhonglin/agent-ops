@@ -1,4 +1,4 @@
-# Only shared/ and the building service's sources reach the image.
+# Only the building service's sources reach the image.
 .git
 .venv
 **/__pycache__
@@ -8,7 +8,8 @@
 .superpowers
 docs
 deploy
-web
+web/node_modules
+web/dist
 sandbox
 sdk
 config/tests
