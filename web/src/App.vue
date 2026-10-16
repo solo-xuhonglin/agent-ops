@@ -1,5 +1,7 @@
 <script setup lang="ts"></script>
 
 <template>
-  <div class="placeholder">config ui</div>
+  <v-app>
+    <router-view />
+  </v-app>
 </template>
