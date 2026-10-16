@@ -45,7 +45,7 @@ const currentTeam = computed(() =>
     <v-app-bar-nav-icon @click="drawer = !drawer" />
     <div class="crumb">配置 / <b>{{ route.meta.title }}</b></div>
     <v-spacer />
-    <v-menu>
+    <v-menu location="bottom start" origin="top start">
       <template #activator="{ props }">
         <button v-bind="props" class="userchip">
           <span class="av">{{ initial }}</span>
