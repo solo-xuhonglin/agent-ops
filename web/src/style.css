@@ -1,12 +1,53 @@
+/* B' design tokens (docs/superpowers/specs/2026-10-16-web-ui-design-system.md §2-§3). */
+:root {
+  --hairline: #e7e7ec;
+  --hairline-strong: #d9d9e0;
+  --ink: #141519;
+  --ink-2: #5c5d66;
+  --accent: #4b1d7e;
+  --accent-soft: #efe9f7;
+  --canvas: #f5f6f8;
+  --brand-panel: #3b1370;
+  --chip-editor: #2e63cd;
+  --font-serif: Georgia, 'STZhongsong', SimSun, serif;
+  --font-mono: 'Cascadia Code', Consolas, monospace;
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+}
+
 html,
 body {
   margin: 0;
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    'Helvetica Neue',
-    Arial,
-    sans-serif;
+  font-family: 'PingFang SC', 'Microsoft YaHei UI', 'HarmonyOS Sans SC', sans-serif;
+  color: var(--ink);
+  background: #fff;
+}
+
+.v-application {
+  font-size: 13.5px;
+}
+
+.display-serif {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  font-size: 19px;
+  line-height: 1.3;
+}
+
+.micro-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--ink-2);
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-2);
 }
