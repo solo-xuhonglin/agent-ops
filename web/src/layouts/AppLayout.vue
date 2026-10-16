@@ -126,7 +126,6 @@ const currentTeam = computed(() =>
 
 .topbar {
   border-bottom: 1px solid var(--hairline);
-  gap: var(--sp-3);
 }
 
 .crumb {

@@ -107,6 +107,11 @@ body {
   margin-bottom: var(--sp-4);
 }
 
+/* Tighten Vuetify's list icon-to-text spacer to the design-system rhythm (spec §3). */
+.v-list-item__prepend > .v-list-item__spacer {
+  width: 10px;
+}
+
 /* Overlays (menus, selects) join the hairline system: no shadows. */
 .v-overlay-content .v-list {
   box-shadow: none;
