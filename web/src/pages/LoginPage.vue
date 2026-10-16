@@ -31,14 +31,14 @@ async function submit() {
 
 <template>
   <div class="split">
-    <aside class="panel">
+    <aside class="brand-side">
       <div class="mark display-serif">Agent<br />Ops.</div>
       <div class="zh">配置中心</div>
       <p class="desc">定义、发布与权限的唯一入口。运行只认已发布的版本；每一次变更都有审计。</p>
     </aside>
 
     <main class="form-side">
-      <form class="inner" @submit.prevent="submit">
+      <form class="card" @submit.prevent="submit">
         <div class="micro-label num-label">NO. 01 — ACCESS</div>
         <h2 class="display-serif heading">登录</h2>
 
@@ -72,61 +72,54 @@ async function submit() {
 <style scoped>
 .split {
   display: grid;
-  grid-template-columns: 46% 1fr;
+  grid-template-columns: 1fr 1fr;
   min-height: 100svh;
+  background: var(--canvas);
 }
 
-.panel {
-  background: var(--brand-panel);
-  color: #f4effa;
-  padding: 7svh 6% 6svh;
+.brand-side {
   display: flex;
   flex-direction: column;
+  justify-content: center;
+  padding: 0 10%;
   position: relative;
-  overflow: hidden;
-}
-
-.panel::after {
-  content: '';
-  position: absolute;
-  inset: auto -30% -45% auto;
-  width: 70%;
-  aspect-ratio: 1;
-  border: 1px solid rgba(244, 239, 250, 0.18);
-  border-radius: 50%;
 }
 
 .mark {
-  font-size: 46px;
+  font-size: 56px;
   line-height: 1.15;
+  color: var(--accent);
 }
 
 .zh {
   margin-top: var(--sp-3);
   font-size: 14px;
   letter-spacing: 0.55em;
-  opacity: 0.85;
+  color: var(--ink-2);
 }
 
 .desc {
-  margin-top: auto;
+  margin-top: var(--sp-6);
   font-size: 12.5px;
   line-height: 2;
-  opacity: 0.72;
-  max-width: 34em;
-  border-top: 1px solid rgba(244, 239, 250, 0.25);
+  color: var(--ink-2);
+  max-width: 30em;
+  border-top: 1px solid var(--hairline);
   padding-top: var(--sp-5);
 }
 
 .form-side {
-  background: var(--canvas);
   display: grid;
   place-items: center;
-  padding: 0 8%;
+  padding: var(--sp-8);
 }
 
-.inner {
+.card {
   width: min(380px, 100%);
+  background: #fff;
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  padding: var(--sp-8);
 }
 
 .num-label {
@@ -139,7 +132,7 @@ async function submit() {
   margin-bottom: var(--sp-5);
 }
 
-.inner :deep(.v-text-field) {
+.card :deep(.v-text-field) {
   margin-bottom: var(--sp-4);
 }
 
