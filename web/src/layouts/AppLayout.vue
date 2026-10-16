@@ -2,8 +2,15 @@
 import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 
+import { useLogout, useSessionQuery, useSwitchTeam } from '../composables/useSession'
+
 const drawer = ref(true)
 const route = useRoute()
+const { data: session } = useSessionQuery()
+const switchTeam = useSwitchTeam()
+const logout = useLogout()
+
+const ROLE_LABELS: Record<string, string> = { admin: '管理员', editor: '编辑', viewer: '只读' }
 </script>
 
 <template>
@@ -37,7 +44,29 @@ const route = useRoute()
     <v-app-bar-nav-icon @click="drawer = !drawer" />
     <v-breadcrumbs :items="[String(route.meta.title ?? '')]" />
     <v-spacer />
-    <v-btn icon="mdi-account-circle" />
+    <v-menu>
+      <template #activator="{ props }">
+        <v-btn v-bind="props" icon="mdi-account-circle" />
+      </template>
+      <v-list density="compact" min-width="240">
+        <v-list-item :title="session?.account.email ?? ''" subtitle="当前账号" />
+        <v-divider />
+        <template v-if="session?.teams.length">
+          <v-list-subheader>切换团队</v-list-subheader>
+          <v-list-item
+            v-for="team in session?.teams"
+            :key="team.tenant_id"
+            :title="team.tenant_name"
+            :subtitle="ROLE_LABELS[team.role] ?? team.role"
+            :active="team.tenant_id === session?.current_tenant_id"
+            @click="switchTeam.mutate(team.tenant_id)"
+          />
+        </template>
+        <v-list-item v-else title="暂无团队" disabled />
+        <v-divider />
+        <v-list-item prepend-icon="mdi-logout" title="登出" @click="logout.mutate()" />
+      </v-list>
+    </v-menu>
   </v-app-bar>
 
   <v-main>
