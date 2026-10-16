@@ -45,7 +45,8 @@
 ## 协作规范
 
 - 以长期共同维护为目标，不只为了完成当前任务：每处改动按规范收敛，不放任代码野蛮生长。
-- 实质性单元走 superpowers 工作流：brainstorm 对齐意图与边界 → writing-plans 做 TDD 任务分解 → executing-plans / subagent-driven 实现 → fresh reviewer 终审 → 文档收口；技术选型遵循行业标准、倾向新技术，但不过度设计。
+- 实质性单元走 superpowers 工作流：brainstorm 对齐意图与边界 → writing-plans 做 TDD 任务分解 → executing-plans / subagent-driven 实现 → fresh reviewer 终审 → 文档收口。
+- 技术选型遵循行业标准、倾向新技术，但不过度设计。
 - 实质性改动提交前，用子 agent 按本规范审查本次改动的代码与文档；格式与文案微调不触发。
 - 审查聚焦有意义的整改：格式类问题顺手修复不占条目，单次最多 5 条。
 
