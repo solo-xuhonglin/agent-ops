@@ -104,14 +104,13 @@ const currentTeam = computed(() =>
 
 .nav-group {
   padding: 0 var(--sp-5);
-  margin-bottom: var(--sp-2);
+  margin-bottom: var(--sp-1);
 }
 
 .nav :deep(.v-list-item) {
-  margin: 0 var(--sp-2);
-  padding-inline: var(--sp-3);
-  min-height: 36px;
-  border-radius: 4px;
+  padding-inline: var(--sp-5);
+  min-height: 40px;
+  border-radius: 0;
   color: var(--ink-2);
 }
 

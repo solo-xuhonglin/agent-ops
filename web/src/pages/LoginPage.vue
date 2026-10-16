@@ -30,62 +30,82 @@ async function submit() {
 </script>
 
 <template>
-  <div class="split">
-    <aside class="brand-side">
-      <div class="mark display-serif">Agent<br />Ops.</div>
-      <div class="zh">配置中心</div>
-      <p class="desc">定义、发布与权限的唯一入口。运行只认已发布的版本；每一次变更都有审计。</p>
-    </aside>
+  <div class="stage">
+    <div class="frame">
+      <aside class="brand-side">
+        <div class="mark display-serif">AgentOps<span class="mark-dot">.</span></div>
+        <div class="zh">配置中心</div>
+        <p class="desc">定义、发布与权限的唯一入口。运行只认已发布的版本；每一次变更都有审计。</p>
+      </aside>
 
-    <main class="form-side">
-      <form class="card form-stack" @submit.prevent="submit">
-        <div class="micro-label num">NO. 01 — ACCESS</div>
-        <h2 class="page-title">登录</h2>
+      <main class="form-side">
+        <form class="form-stack inner" @submit.prevent="submit">
+          <div class="micro-label num">NO. 01 — ACCESS</div>
+          <h2 class="page-title">登录</h2>
 
-        <v-text-field
-          v-model="email"
-          label="邮箱"
-          type="email"
-          autocomplete="username"
-          variant="underlined"
-        />
-        <v-text-field
-          v-model="password"
-          label="口令"
-          type="password"
-          autocomplete="current-password"
-          variant="underlined"
-        />
+          <v-text-field
+            v-model="email"
+            label="邮箱"
+            type="email"
+            autocomplete="username"
+            variant="underlined"
+          />
+          <v-text-field
+            v-model="password"
+            label="口令"
+            type="password"
+            autocomplete="current-password"
+            variant="underlined"
+          />
 
-        <v-alert v-if="errorMessage" type="error" variant="tonal" density="compact" class="error">
-          {{ errorMessage }}
-        </v-alert>
+          <v-alert v-if="errorMessage" type="error" variant="tonal" density="compact" class="error">
+            {{ errorMessage }}
+          </v-alert>
 
-        <button type="submit" class="go" :disabled="login.isPending.value">进 入</button>
-      </form>
-    </main>
+          <button type="submit" class="go" :disabled="login.isPending.value">进 入</button>
+        </form>
+      </main>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.split {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+.stage {
   min-height: 100svh;
   background: var(--canvas);
+  display: grid;
+  place-items: center;
+  padding: var(--sp-6);
+}
+
+.frame {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: min(960px, 100%);
+  min-height: min(520px, 86svh);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  overflow: hidden;
 }
 
 .brand-side {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 0 10%;
+  padding: var(--sp-8) 9%;
+  border-right: 1px solid var(--hairline);
 }
 
 .mark {
-  font-size: 56px;
-  line-height: 1.15;
+  font-size: clamp(36px, 4.5vw, 52px);
+  line-height: 1.1;
+  white-space: nowrap;
   color: var(--accent);
+}
+
+.mark-dot {
+  color: var(--accent-deep);
 }
 
 .zh {
@@ -100,7 +120,7 @@ async function submit() {
   font-size: 12.5px;
   line-height: 2;
   color: var(--ink-2);
-  max-width: 30em;
+  max-width: 26em;
   border-top: 1px solid var(--hairline);
   padding-top: var(--sp-5);
 }
@@ -111,12 +131,8 @@ async function submit() {
   padding: var(--sp-8);
 }
 
-.card {
-  width: min(380px, 100%);
-  background: var(--surface);
-  border: 1px solid var(--hairline);
-  border-radius: 4px;
-  padding: var(--sp-8);
+.inner {
+  width: min(300px, 100%);
 }
 
 .error {
